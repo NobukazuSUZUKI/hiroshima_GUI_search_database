@@ -235,7 +235,7 @@ class App:
         tk.Button(btns, text="広島関係", font=FONT_BTN, width=12, height=1,
                   command=self.search_hiroshima).pack(side="left", padx=8)
         tk.Button(btns, text="詳細検索", font=FONT_BTN, width=12, height=1,
-                  command=self.search_advanced).pack(side="left", padx=8)
+                  command=self.open_advanced_dialog).pack(side="left", padx=8)
 
         # ==== 件数表示 ====
         self.label_count = tk.Label(self.root, text="", font=FONT_MED, bg="white", fg="black")
@@ -563,6 +563,64 @@ class App:
                   bg="#e6e6e6", fg="black", command=dlg.destroy)\
             .pack(pady=(10, 10))
 
+    def open_advanced_dialog(self):
+        """詳細検索ダイアログ（ジャンル検索と同サイズの別ウィンドウ）"""
+        dlg = tk.Toplevel(self.root, bg="white")
+        dlg.title("詳細検索")
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w, h = int(sw * 0.9), int(sh * 0.7)
+        x, y = (sw - w)//2, (sh - h)//2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.focus_force()
+
+        host = tk.Frame(dlg, bg="white")
+        host.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # ---- フォーム：4つの入力 ----
+        form = tk.Frame(host, bg="white")
+        form.pack(fill="x", anchor="w")
+
+        labels = [("タイトル","タイトル"), ("人名","人名"), ("内容","内容"), ("請求番号","請求番号")]
+        self.adv_entries = {}
+        for r, (key, lab) in enumerate(labels):
+            tk.Label(form, text=lab, font=FONT_MED, bg="white", fg="black", anchor="w", width=12)                .grid(row=r, column=0, sticky="w", padx=(0,8), pady=6)
+            ent = tk.Entry(form, font=FONT_MED, width=50)
+            ent.grid(row=r, column=1, sticky="w", padx=(0,16), pady=6, ipady=4)
+            self.adv_entries[key] = ent
+
+        # ---- メディア種別チェック群 ----
+        media_frame = tk.Frame(host, bg="white")
+        media_frame.pack(fill="x", anchor="w", pady=(16,0))
+
+        tk.Label(media_frame, text="メディア", font=FONT_MED, bg="white", fg="black", anchor="w", width=12)            .grid(row=0, column=0, sticky="w")
+
+        checks_frame = tk.Frame(media_frame, bg="white")
+        checks_frame.grid(row=0, column=1, sticky="w")
+
+        media_items = ["ビデオテープ", "DVD", "レコード", "コンパクトカセットテープ"]
+        self.adv_media_vars = {}
+        for i, m in enumerate(media_items):
+            var = tk.BooleanVar(value=True)
+            tk.Checkbutton(checks_frame, text=m, variable=var, font=FONT_MED, bg="white")              .grid(row=0, column=i, padx=(0,12))
+            self.adv_media_vars[m] = var
+
+        def uncheck_all():
+            for v in self.adv_media_vars.values():
+                v.set(False)
+
+        tk.Button(media_frame, text="すべて解除", font=FONT_BTN, width=10,
+                  command=uncheck_all)            .grid(row=0, column=2, sticky="w", padx=(16,0))
+
+        # ---- 実行ボタン ----
+        btns = tk.Frame(host, bg="white")
+        btns.pack(fill="x", pady=(24,0))
+        tk.Button(btns, text="検索", font=FONT_BTN, width=10,
+                  command=lambda: self.run_advanced_search(dlg))            .pack(side="right", padx=(0,8))
+        tk.Button(btns, text="閉じる", font=FONT_BTN, width=10,
+                  command=lambda: (dlg.grab_release(), dlg.destroy()))            .pack(side="right")
+
     def search_by_genre(self, genre: str, dlg: tk.Toplevel = None):
         if "ジャンル" not in self.df_all.columns:
             messagebox.showwarning("警告", "Excel に『ジャンル』列が見つかりません。")
@@ -803,6 +861,69 @@ class App:
         if self.df_hits is None: return
         self.page = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         self.update_table()
+
+    def run_advanced_search(self, dlg: tk.Toplevel):
+        """詳細検索の条件で self.df_all を絞り込み、結果を反映"""
+        df = self.df_all
+        mask = pd.Series([True]*len(df), index=df.index)
+
+        # 入力欄：部分一致（AND）
+        title_q = self.adv_entries.get("タイトル").get().strip()
+        person_q = self.adv_entries.get("人名").get().strip()
+        content_q = self.adv_entries.get("内容").get().strip()
+        callno_q = self.adv_entries.get("請求番号").get().strip()
+
+        if title_q:
+            mask &= df["タイトル"].fillna("").str.contains(re.escape(title_q), case=False)
+        if person_q:
+            # 人名は 演奏者/作曲者/出演者/監督 など複数列がある可能性に備えて幅広く見る
+            cols = [c for c in df.columns if any(k in c for k in ["演奏","作曲","出演","監督","人名","作者","著者","制作","製作","歌手","語り"])]
+            if not cols:
+                cols = ["演奏者","作曲者"]
+            per_mask = pd.Series([False]*len(df), index=df.index)
+            for c in cols:
+                if c in df.columns:
+                    per_mask |= df[c].fillna("").str.contains(re.escape(person_q), case=False)
+            mask &= per_mask
+        if content_q:
+            # 本文用の __全文__ があればそれを使う、なければ「解説」「内容」「備考」などをORで
+            if "__全文__" in df.columns:
+                mask &= df["__全文__"].fillna("").str.contains(re.escape(content_q), case=False)
+            else:
+                cols = [c for c in df.columns if any(k in c for k in ["解説","内容","備考","メモ","注記"])]
+                if cols:
+                    c_mask = pd.Series([False]*len(df), index=df.index)
+                    for c in cols:
+                        c_mask |= df[c].fillna("").str.contains(re.escape(content_q), case=False)
+                    mask &= c_mask
+        if callno_q:
+            # 請求番号/資料番号/所蔵番号などを幅広く
+            cols = [c for c in df.columns if any(k in c for k in ["請求","資料番号","所蔵番号","管理番号","ID","番号"])]
+            if not cols:
+                cols = ["請求番号"]
+            c_mask = pd.Series([False]*len(df), index=df.index)
+            for c in cols:
+                if c in df.columns:
+                    c_mask |= df[c].fillna("").str.contains(re.escape(callno_q), case=False)
+            mask &= c_mask
+
+        # メディア種別：チェックされているものだけ許可（OR）
+        checked = [k for k,v in self.adv_media_vars.items() if v.get()]
+        media_cols = [c for c in df.columns if any(k in c for k in ["メディア","媒体","種類","フォーマット","形態"])]
+        if checked and media_cols:
+            m_mask = pd.Series([False]*len(df), index=df.index)
+            for c in media_cols:
+                m_mask |= df[c].fillna("").str.contains("|".join(map(re.escape, checked)))
+            mask &= m_mask
+
+        self.df_hits = df[mask].copy()
+        self.cur_page = 0
+        self.update_table()
+        try:
+            dlg.grab_release()
+        except Exception:
+            pass
+        dlg.destroy()
 
     # ==== プレースホルダ ====
     def search_people(self): messagebox.showinfo("人名検索", "後で実装予定です。")
