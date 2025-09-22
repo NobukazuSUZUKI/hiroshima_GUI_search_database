@@ -25,14 +25,13 @@ FONT_BTN   = ("Meiryo", 16)
 # 詳細ウィンドウ関連
 DETAIL_WIDTH_PCT  = 0.50   # 右側“全体”＝画面の右半分
 DETAIL_TOP_MARGIN = 0      # 上マージン
-DETAIL_HEIGHT_PCT = 1.00   # 高さは親ウィンドウいっぱい
-FADE_IN_MS        = 40     # 詳細ウィンドウ新規表示のときだけフェード
+DETAIL_HEIGHT_PCT = 0.70   # 高さは親ウィンドウの70%
+FADE_IN_MS        = 40
 FADE_STEP_MS      = 10
 
-# 詳細ボタンのサイズ（「人名検索」と「先頭」の中間）
-DETAIL_BTN_FONT   = ("Meiryo", 18)
-DETAIL_BTN_WIDTH  = 14
-DETAIL_BTN_HEIGHT = 2
+DETAIL_BTN_FONT   = ("Meiryo", 14)
+DETAIL_BTN_WIDTH  = 10
+DETAIL_BTN_HEIGHT = 1
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -69,7 +68,7 @@ class App:
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
         self.root.geometry(f"{sw}x{sh}+0+0")   # フルスクリーン相当で開始
-        self.root.resizable(True, True)        # 調整可能
+        self.root.resizable(True, True)
 
         # ==== ヘッダー ====
         header = tk.Frame(self.root)
@@ -93,17 +92,14 @@ class App:
         search_frame = tk.Frame(self.root)
         search_frame.pack(pady=(20, 10))
         tk.Label(search_frame, text="キーワード検索", font=FONT_LARGE).pack(anchor="center")
-
         entry_row = tk.Frame(search_frame)
         entry_row.pack(pady=10)
-
         self.entry = tk.Entry(entry_row, width=40, font=FONT_LARGE)
         self.entry.pack(side="left", padx=(0,12), ipady=12)
-
-        # 検索ボタン削除 → Enterキーでのみ検索
+        # 検索ボタン削除 → Enterキーで検索
         self.entry.bind("<Return>", lambda e: self.do_search())
 
-        # ==== ボタン群（左寄せ） ====
+        # ==== ボタン群 ====
         btns = tk.Frame(self.root)
         btns.pack(anchor="w", padx=50, pady=(10, 20))
         tk.Button(btns, text="人名検索", font=FONT_BTN, width=14, height=2,
@@ -119,7 +115,7 @@ class App:
         self.label_count = tk.Label(self.root, text="", font=FONT_MED)
         self.label_count.pack(anchor="w", padx=50)
 
-        # ==== 検索結果テーブル（初回は非表示） ====
+        # ==== 検索結果テーブル ====
         self.table_area = tk.Frame(self.root)
         style = ttk.Style()
         style.configure("Treeview", rowheight=28, font=FONT_MED)
@@ -129,7 +125,6 @@ class App:
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.bind("<Double-1>", self.on_row_double_click)
 
-        # Treeview 選択イベント制御（ナビ操作時は選択イベントを抑制）
         self._suppress_select_event = False
         self._suppress_token = 0
         self.tree.bind("<<TreeviewSelect>>", self.on_row_select_maybe_close_detail)
@@ -165,26 +160,11 @@ class App:
         self.page = 1
 
         # 詳細ウィンドウ管理
-        self.detail_win = None           # Toplevel
-        self.detail_abs_index = None     # df_hits 上の絶対インデックス
-        self.detail_labels = {}          # 項目名 -> Label
+        self.detail_win = None
+        self.detail_abs_index = None
+        self.detail_labels = {}
         self.prev_btn = None
         self.next_btn = None
-
-    # ==== 抑制フラグ（遅延解除つき） ====
-    def begin_suppress_select(self):
-        self._suppress_token += 1
-        self._suppress_select_event = True
-
-    def end_suppress_select_later(self, delay_ms=120):
-        token_at_call = self._suppress_token
-        def _release():
-            # 自分が最後の抑制者なら解除
-            if self._suppress_token == token_at_call and self._suppress_token > 0:
-                self._suppress_token -= 1
-                if self._suppress_token == 0:
-                    self._suppress_select_event = False
-        self.root.after(delay_ms, _release)
 
     # ==== 検索処理 ====
     def do_search(self):
@@ -193,165 +173,31 @@ class App:
         self.df_hits = self.df_all[mask].copy()
         self.page = 1
         self.update_table()
-        # 新しい検索で詳細は消す
         self.close_detail_if_exists()
 
     def update_table(self):
         for r in self.tree.get_children():
             self.tree.delete(r)
-
         if self.df_hits is None or self.df_hits.empty:
             self.label_count.config(text="ヒット件数: 0")
             self.table_area.pack_forget()
             self.nav.pack_forget()
             self.close_detail_if_exists()
             return
-
         total = len(self.df_hits)
         start = (self.page - 1) * PAGE_SIZE
         end   = min(start + PAGE_SIZE, total)
         view = self.df_hits.iloc[start:end]
-
         rows = view[self.main_cols].astype(str).values.tolist()
         for i, vals in enumerate(rows):
             tag = "odd" if i % 2 else "even"
             self.tree.insert("", "end", values=vals, tags=(tag,))
         self.tree.tag_configure("odd", background="#f2f2f2")
         self.tree.tag_configure("even", background="white")
-
         pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
         self.label_count.config(text=f"ヒット件数: {total}   ページ {self.page}/{pages}")
-
         self.table_area.pack(fill="both", expand=True, padx=20, pady=10)
         self.nav.pack(anchor="w", padx=50, pady=5)
-
-    # ==== 詳細ウィンドウ（新規作成） ====
-    def create_detail_window(self, row: pd.Series, abs_index: int):
-        self.detail_abs_index = abs_index
-
-        # 位置とサイズ（右半分・親いっぱい）
-        self.root.update_idletasks()
-        px = self.root.winfo_rootx()
-        py = self.root.winfo_rooty()
-        pw = self.root.winfo_width()
-        ph = self.root.winfo_height()
-        win_w = max(480, int(pw * DETAIL_WIDTH_PCT))
-        win_h = max(300, int(ph * DETAIL_HEIGHT_PCT))
-        x = px + pw - win_w
-        y = py + DETAIL_TOP_MARGIN
-
-        win = tk.Toplevel(self.root)
-        win.title("詳細表示")
-        win.geometry(f"{win_w}x{win_h}+{x}+{y}")
-        win.resizable(True, True)
-        try:
-            win.attributes("-alpha", 0.0)  # 新規時のみフェード
-        except Exception:
-            pass
-
-        # ルートフレーム：上＝内容、下＝ボタンバー（固定）
-        rootf = tk.Frame(win)
-        rootf.pack(fill="both", expand=True)
-        rootf.rowconfigure(0, weight=1)
-        rootf.rowconfigure(1, weight=0)
-        rootf.columnconfigure(0, weight=1)
-
-        # ---- 内容エリア ----
-        content = tk.Frame(rootf)
-        content.grid(row=0, column=0, sticky="nsew")
-
-        pad = 16
-        wrap = win_w - pad*2
-
-        self.detail_labels = {}  # 再生成
-
-        # タイトル
-        lbl_title = tk.Label(content, text=row.get("タイトル",""),
-                             font=("Meiryo", 20, "bold"),
-                             anchor="w", justify="left", wraplength=wrap)
-        lbl_title.pack(fill="x", padx=pad, pady=(pad, 8))
-        self.detail_labels["タイトル"] = lbl_title
-
-        # 表示する項目（「演奏者（追加）」「内容（追加）」は除外）
-        fields = [c for c in ["作曲者","演奏者","ジャンル","メディア",
-                              "登録番号","レコード番号","レーベル","内容"] if c in row.index]
-        for c in fields:
-            cap = tk.Label(content, text=c, font=FONT_MED, anchor="w", fg="#555")
-            cap.pack(fill="x", padx=pad, pady=(8, 0))
-            val = tk.Label(content, text=str(row[c]), font=FONT_MED,
-                           anchor="w", justify="left", wraplength=wrap)
-            val.pack(fill="x", padx=pad)
-            self.detail_labels[c] = val
-
-        tk.Frame(content, height=10).pack()
-
-        # ---- ボタンバー（最下部固定） ----
-        btnbar = tk.Frame(rootf)
-        btnbar.grid(row=1, column=0, sticky="ew")
-        btnbar.columnconfigure(0, weight=0)
-        btnbar.columnconfigure(1, weight=0)
-        btnbar.columnconfigure(2, weight=1)
-        btnbar.columnconfigure(3, weight=0)
-
-        self.prev_btn = tk.Button(btnbar, text="前資料",
-                                  font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
-                                  command=lambda: self.nav_detail(-1))
-        self.next_btn = tk.Button(btnbar, text="次資料",
-                                  font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
-                                  command=lambda: self.nav_detail(+1))
-        self.prev_btn.grid(row=0, column=0, padx=(14, 8), pady=(8, 12), sticky="w")
-        self.next_btn.grid(row=0, column=1, padx=(0, 8), pady=(8, 12), sticky="w")
-
-        close_btn = tk.Button(btnbar, text="閉じる",
-                              font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
-                              command=self.close_detail_if_exists)
-        close_btn.grid(row=0, column=3, padx=(0, 14), pady=(8, 12), sticky="e")
-
-        # 前後境界の活性/非活性
-        self.update_detail_nav_buttons()
-
-        # フェードイン（新規時のみ）
-        try:
-            steps = max(1, FADE_IN_MS // FADE_STEP_MS)
-            def _fade(step=0):
-                a = min(1.0, (step + 1) / steps)
-                try:
-                    win.attributes("-alpha", a)
-                except Exception:
-                    pass
-                if step + 1 < steps:
-                    win.after(FADE_STEP_MS, _fade, step + 1)
-            _fade(0)
-        except Exception:
-            pass
-
-        self.detail_win = win
-
-    # ==== 詳細ラベルを更新（ウィンドウは維持） ====
-    def update_detail_labels(self, row: pd.Series):
-        if not self.detail_labels:
-            return
-        if "タイトル" in self.detail_labels:
-            self.detail_labels["タイトル"].config(text=row.get("タイトル",""))
-        for c, lbl in self.detail_labels.items():
-            if c == "タイトル":
-                continue
-            if c in row.index:
-                lbl.config(text=str(row[c]))
-
-    def update_detail_nav_buttons(self):
-        # prev
-        if self.prev_btn:
-            if self.detail_abs_index is None or self.detail_abs_index <= 0:
-                self.prev_btn.configure(state="disabled")
-            else:
-                self.prev_btn.configure(state="normal")
-        # next
-        if self.next_btn:
-            if self.df_hits is None or self.detail_abs_index is None or self.detail_abs_index >= len(self.df_hits)-1:
-                self.next_btn.configure(state="disabled")
-            else:
-                self.next_btn.configure(state="normal")
 
     # ==== ダブルクリックで詳細を開く ====
     def on_row_double_click(self, event):
@@ -364,15 +210,74 @@ class App:
         idx_in_page = self.tree.index(item_id)
         start = (self.page - 1) * PAGE_SIZE
         abs_idx = start + idx_in_page
-
         self.close_detail_if_exists()
         self.create_detail_window(self.df_hits.iloc[abs_idx], abs_idx)
 
-    # ==== シングル選択時：通常は詳細を閉じる（ナビ操作での選択は抑制） ====
+    # ==== シングルクリックで詳細を閉じる ====
     def on_row_select_maybe_close_detail(self, event):
         if self._suppress_select_event:
             return
         self.close_detail_if_exists()
+
+    # ==== 詳細ウィンドウ ====
+    def create_detail_window(self, row: pd.Series, abs_index: int):
+        self.detail_abs_index = abs_index
+        self.root.update_idletasks()
+        px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
+        pw, ph = self.root.winfo_width(), self.root.winfo_height()
+        win_w = max(480, int(pw * DETAIL_WIDTH_PCT))
+        win_h = max(300, int(ph * DETAIL_HEIGHT_PCT))
+        x, y = px + pw - win_w, py + DETAIL_TOP_MARGIN
+        win = tk.Toplevel(self.root)
+        win.title("詳細表示")
+        win.geometry(f"{win_w}x{win_h}+{x}+{y}")
+        win.resizable(True, True)
+
+        # 矢印キーで前後移動
+        win.bind("<Left>",  lambda e: self.nav_detail(-1))
+        win.bind("<Up>",    lambda e: self.nav_detail(-1))
+        win.bind("<Right>", lambda e: self.nav_detail(+1))
+        win.bind("<Down>",  lambda e: self.nav_detail(+1))
+
+        # 内容エリア
+        rootf = tk.Frame(win)
+        rootf.pack(fill="both", expand=True)
+        content = tk.Frame(rootf)
+        content.pack(fill="both", expand=True)
+        pad = 16
+        wrap = win_w - pad*2
+        self.detail_labels = {}
+        lbl_title = tk.Label(content, text=row.get("タイトル",""),
+                             font=("Meiryo", 20, "bold"),
+                             anchor="w", justify="left", wraplength=wrap)
+        lbl_title.pack(fill="x", padx=pad, pady=(pad, 8))
+        self.detail_labels["タイトル"] = lbl_title
+        fields = [c for c in ["作曲者","演奏者","ジャンル","メディア",
+                              "登録番号","レコード番号","レーベル","内容"] if c in row.index]
+        for c in fields:
+            cap = tk.Label(content, text=c, font=FONT_MED, anchor="w", fg="#555")
+            cap.pack(fill="x", padx=pad, pady=(8, 0))
+            val = tk.Label(content, text=str(row[c]), font=FONT_MED,
+                           anchor="w", justify="left", wraplength=wrap)
+            val.pack(fill="x", padx=pad)
+            self.detail_labels[c] = val
+
+        # ボタンバー
+        btnbar = tk.Frame(rootf)
+        btnbar.pack(fill="x")
+        self.prev_btn = tk.Button(btnbar, text="前資料",
+                                  font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
+                                  command=lambda: self.nav_detail(-1))
+        self.next_btn = tk.Button(btnbar, text="次資料",
+                                  font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
+                                  command=lambda: self.nav_detail(+1))
+        self.prev_btn.pack(side="left", padx=10, pady=8)
+        self.next_btn.pack(side="left", padx=10, pady=8)
+        close_btn = tk.Button(btnbar, text="閉じる",
+                              font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
+                              command=self.close_detail_if_exists)
+        close_btn.pack(side="right", padx=10, pady=8)
+        self.detail_win = win
 
     def close_detail_if_exists(self):
         try:
@@ -386,40 +291,26 @@ class App:
         self.prev_btn = None
         self.next_btn = None
 
-    # ==== 詳細の前後ナビゲーション（ウィンドウは維持して内容のみ更新） ====
+    # ==== ナビ ====
     def nav_detail(self, delta: int):
         if self.detail_abs_index is None or self.df_hits is None:
             return
         new_idx = self.detail_abs_index + delta
         if new_idx < 0 or new_idx >= len(self.df_hits):
             return
-
-        # 抑制開始（複数の Select イベントをまとめて抑制）
-        self.begin_suppress_select()
-
-        # ページ跨ぎ：必要ならページ更新
-        new_page = (new_idx // PAGE_SIZE) + 1
-        if new_page != self.page:
-            self.page = new_page
-            self.update_table()
-
-        # Treeview 選択移動
-        start = (self.page - 1) * PAGE_SIZE
-        rel_idx = new_idx - start
-        items = self.tree.get_children()
-        if 0 <= rel_idx < len(items):
-            item_id = items[rel_idx]
-            self.tree.selection_set(item_id)
-            self.tree.see(item_id)
-
-        # 抑制解除は少し遅らせて、イベント連鎖をやり過ごす
-        self.end_suppress_select_later(150)
-
-        # ウィンドウを閉じずに内容だけ更新
         self.detail_abs_index = new_idx
         row = self.df_hits.iloc[new_idx]
         self.update_detail_labels(row)
-        self.update_detail_nav_buttons()
+
+    def update_detail_labels(self, row: pd.Series):
+        if not self.detail_labels:
+            return
+        if "タイトル" in self.detail_labels:
+            self.detail_labels["タイトル"].config(text=row.get("タイトル",""))
+        for c, lbl in self.detail_labels.items():
+            if c == "タイトル": continue
+            if c in row.index:
+                lbl.config(text=str(row[c]))
 
     # ==== ページ操作 ====
     def prev_page(self):
@@ -445,18 +336,11 @@ class App:
         self.page = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         self.update_table()
 
-    # ==== 追加ボタンのプレースホルダ ====
-    def search_people(self):
-        messagebox.showinfo("人名検索", "後で実装予定です。")
-
-    def search_genre(self):
-        messagebox.showinfo("ジャンル検索", "後で実装予定です。")
-
-    def search_hiroshima(self):
-        messagebox.showinfo("広島関係", "後で実装予定です。")
-
-    def search_advanced(self):
-        messagebox.showinfo("詳細検索", "後で実装予定です。")
+    # ==== プレースホルダ ====
+    def search_people(self): messagebox.showinfo("人名検索", "後で実装予定です。")
+    def search_genre(self): messagebox.showinfo("ジャンル検索", "後で実装予定です。")
+    def search_hiroshima(self): messagebox.showinfo("広島関係", "後で実装予定です。")
+    def search_advanced(self): messagebox.showinfo("詳細検索", "後で実装予定です。")
 
 # ========= 起動 =========
 def main():
