@@ -3,12 +3,15 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+from PIL import Image, ImageTk
 import pandas as pd
 import re
 from pathlib import Path
 
 SHEET_NAME = "Sheet"
 PAGE_SIZE  = 20
+FONT_TITLE = ("Meiryo", 28, "bold")
+FONT_SUB   = ("Meiryo", 18)
 FONT_LARGE = ("Meiryo", 20)
 FONT_MED   = ("Meiryo", 14)
 FONT_BTN   = ("Meiryo", 18)
@@ -58,14 +61,31 @@ class App:
         self.root.attributes("-fullscreen", True)
         self.root.resizable(False, False)
 
-        # === 上段：キーワード検索 ===
-        top = tk.Frame(self.root)
-        top.pack(pady=(30, 20))
-        tk.Label(top, text="キーワード検索", font=FONT_LARGE).pack(anchor="center")
-        entry_row = tk.Frame(top)
+        # === 左上：ロゴとタイトル ===
+        header = tk.Frame(self.root)
+        header.pack(anchor="w", padx=20, pady=(20,10))
+
+        # ロゴ表示
+        logo_path = Path(__file__).resolve().parent / "logo.png"
+        if logo_path.exists():
+            img = Image.open(logo_path)
+            img = img.resize((120, 120))  # ロゴのサイズ調整
+            self.logo_img = ImageTk.PhotoImage(img)
+            tk.Label(header, image=self.logo_img).pack(side="left", padx=(0,20))
+
+        title_frame = tk.Frame(header)
+        title_frame.pack(side="left")
+        tk.Label(title_frame, text="広島市映像文化ライブラリー", font=FONT_TITLE, anchor="w").pack(anchor="w")
+        tk.Label(title_frame, text="所蔵資料検索データベース（ベータ版）", font=FONT_SUB, anchor="w").pack(anchor="w")
+
+        # === キーワード検索 ===
+        search_frame = tk.Frame(self.root)
+        search_frame.pack(pady=(30, 20))
+        tk.Label(search_frame, text="キーワード検索", font=FONT_LARGE).pack(anchor="center")
+        entry_row = tk.Frame(search_frame)
         entry_row.pack(pady=10)
         self.entry = tk.Entry(entry_row, width=40, font=FONT_LARGE)
-        self.entry.pack(side="left", padx=(0,12), ipady=10)  # ←高さ調整
+        self.entry.pack(side="left", padx=(0,12), ipady=10)
         btn_search = tk.Button(entry_row, text="検索", font=FONT_LARGE, command=self.do_search)
         btn_search.pack(side="left")
         self.entry.bind("<Return>", lambda e: self.do_search())
@@ -73,12 +93,12 @@ class App:
         # === ボタン群 ===
         btns = tk.Frame(self.root)
         btns.pack(anchor="w", padx=50, pady=(10, 20))
-        tk.Button(btns, text="人名検索", font=FONT_BTN, width=15, height=2,
-                  command=self.search_people).pack(side="left", padx=10)
-        tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=15, height=2,
-                  command=self.search_genre).pack(side="left", padx=10)
-        tk.Button(btns, text="詳細検索", font=FONT_BTN, width=15, height=2,
-                  command=self.search_advanced).pack(side="left", padx=10)
+        tk.Button(btns, text="人名検索", font=FONT_BTN, width=18, height=3,
+                  command=self.search_people).pack(side="left", padx=15)
+        tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=18, height=3,
+                  command=self.search_genre).pack(side="left", padx=15)
+        tk.Button(btns, text="詳細検索", font=FONT_BTN, width=18, height=3,
+                  command=self.search_advanced).pack(side="left", padx=15)
 
         # === 件数表示 ===
         self.label_count = tk.Label(self.root, text="", font=FONT_MED)
@@ -93,7 +113,6 @@ class App:
         scroll.pack(side="right", fill="y")
         self.tree.configure(yscroll=scroll.set)
 
-        # === ページ操作（同じく非表示） ===
         self.nav = tk.Frame(self.root)
         tk.Button(self.nav, text="前のページ", font=FONT_MED, command=self.prev_page).pack(side="left", padx=8)
         tk.Button(self.nav, text="次のページ", font=FONT_MED, command=self.next_page).pack(side="left", padx=8)
@@ -139,7 +158,6 @@ class App:
             self.tree.insert("", "end", values=[row.get(c, "") for c in self.main_cols])
         pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
         self.label_count.config(text=f"ヒット件数: {total}   ページ {self.page}/{pages}")
-        # 検索結果を表示
         self.table_area.pack(fill="both", expand=True, padx=20, pady=10)
         self.nav.pack(pady=15)
 
