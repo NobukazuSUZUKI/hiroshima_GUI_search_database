@@ -26,7 +26,7 @@ DETAIL_BTN_FONT   = ("Meiryo", 12)
 DETAIL_BTN_WIDTH  = 10
 DETAIL_BTN_HEIGHT = 1
 
-# 詳細ウィンドウの余白設定（＝完全版）
+# 詳細ウィンドウの余白設定（完全版）
 DETAIL_MARGIN_TOP = 40
 DETAIL_MARGIN_BOTTOM = 80
 DETAIL_MARGIN_RIGHT = 40  # 右余白
@@ -118,9 +118,15 @@ class App:
         # ==== 検索結果テーブル ====
         self.table_area = tk.Frame(self.root, bg="white")
         style = ttk.Style()
-        style.configure("Treeview", rowheight=24, font=FONT_MED)
+        # 交互色が見えるようにデフォルト背景も白で固定
+        style.configure("Treeview",
+                        rowheight=24,
+                        font=FONT_MED,
+                        background="white",
+                        fieldbackground="white")
         style.configure("Treeview.Heading", font=FONT_MED)
         style.map("Treeview", background=[("selected", "#d0e0ff")])
+
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
 
@@ -131,6 +137,11 @@ class App:
         # 交互色タグ（しましま）
         self.tree.tag_configure("odd", background="#f2f2f2")
         self.tree.tag_configure("even", background="white")
+
+        # 列リサイズを完全ブロック
+        self.tree.bind("<Button-1>", self._block_resize)
+        self.tree.bind("<B1-Motion>", self._block_resize)
+        self.tree.bind("<ButtonRelease-1>", self._block_resize)
 
         # ダブルクリックで詳細（完全版の動作へ）
         self.tree.bind("<Double-1>", self.on_row_double_click)
@@ -156,8 +167,9 @@ class App:
         cols_ids = [f"c{i+1}" for i in range(len(self.main_cols))]
         self.tree.configure(columns=cols_ids)
         for i, c in enumerate(self.main_cols):
+            # stretch=False で自動伸縮を抑止（リサイズ操作も合わせて抑止に寄与）
             self.tree.heading(cols_ids[i], text=c)
-            self.tree.column(cols_ids[i], width=180, anchor="w")
+            self.tree.column(cols_ids[i], width=180, anchor="w", stretch=False)
 
         # 状態
         self.df_hits = None
@@ -169,6 +181,12 @@ class App:
         self.detail_labels = {}
         self.prev_btn = None
         self.next_btn = None
+
+    # --- 列リサイズ抑止用ハンドラ ---
+    def _block_resize(self, event):
+        region = self.tree.identify_region(event.x, event.y)
+        if region == "separator":
+            return "break"  # セパレーター上のドラッグ/クリックを無効化
 
     # ==== 検索処理 ====
     def do_search(self):
