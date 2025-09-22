@@ -67,8 +67,10 @@ class App:
         self.root.title("Audio Search — tkinter")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
+        # 起動時にフルスクリーン化
         self.root.geometry(f"{sw}x{sh}+0+0")
-        self.root.resizable(False, False)
+        # ✅ リサイズ可能にする
+        self.root.resizable(True, True)
 
         # ==== ヘッダー ====
         header = tk.Frame(self.root)
@@ -100,7 +102,7 @@ class App:
         btn_search.pack(side="left")
         self.entry.bind("<Return>", lambda e: self.do_search())
 
-        # ==== ボタン群（少し小さめ） ====
+        # ==== ボタン群 ====
         btns = tk.Frame(self.root)
         btns.pack(anchor="w", padx=50, pady=(10, 20))
         tk.Button(btns, text="人名検索", font=FONT_BTN, width=14, height=2,
@@ -114,7 +116,7 @@ class App:
         self.label_count = tk.Label(self.root, text="", font=FONT_MED)
         self.label_count.pack(anchor="w", padx=50)
 
-        # ==== 検索結果テーブル（最初は非表示） ====
+        # ==== 検索結果テーブル ====
         self.table_area = tk.Frame(self.root)
         style = ttk.Style()
         style.configure("Treeview", rowheight=28, font=FONT_MED)
@@ -177,7 +179,7 @@ class App:
         end   = min(start + PAGE_SIZE, total)
         view = self.df_hits.iloc[start:end]
 
-        # ✅ 日本語列名でも確実に取り出す
+        # 行をリストとして取り出す
         rows = view[self.main_cols].astype(str).values.tolist()
         for i, vals in enumerate(rows):
             tag = "odd" if i % 2 else "even"
