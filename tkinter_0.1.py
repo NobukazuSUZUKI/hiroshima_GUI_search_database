@@ -33,6 +33,10 @@ DETAIL_MARGIN_TOP = 40
 DETAIL_MARGIN_BOTTOM = 80
 DETAIL_MARGIN_RIGHT = 40  # 右余白
 
+# 表記ゆれ吸収用（広島）— 3.1.py と同等ヒットになるよう網羅
+HIROSHIMA_VARIANTS = ["広島", "ヒロシマ", "ひろしま", "廣島", "ﾋﾛｼﾏ", "hiroshima", "HIROSHIMA"]
+HIROSHIMA_REGEX = "(" + "|".join(map(re.escape, HIROSHIMA_VARIANTS)) + ")"
+
 # ========= ユーティリティ =========
 def katakana_to_hiragana(s: str) -> str:
     # カタカナ -> ひらがな（半角->全角も正規化）
@@ -543,20 +547,31 @@ class App:
 
     # ==== 広島検索（多表記 + 地名/人名も全文一致で拾う） ====
     def search_hiroshima(self):
-        keywords = [
-            "広島","ひろしま","ﾋﾛｼﾏ","ヒロシマ","廣島",
-            "hiroshima","HIROSHIMA",
-        ]
-        mask = pd.Series([False]*len(self.df_all), index=self.df_all.index)
-        for kw in keywords:
-            mask |= self.df_all["__全文__"].str.contains(re.escape(kw), case=False, na=False)
+        """『広島』表記ゆれをすべて拾う検索。3.1.py と同等件数を想定。"""
+        if "__全文__" not in self.df_all.columns:
+            messagebox.showwarning("警告", "Excel に『全文』データが見つかりません。")
+            return
+
+        # 正規表現で表記ゆれを網羅（大文字小文字無視）
+        try:
+            mask = self.df_all["__全文__"].str.contains(HIROSHIMA_REGEX, case=False, na=False, regex=True)
+        except Exception:
+            # 念のためフォールバック（バージョン差対策）
+            def _contains_any(text: str) -> bool:
+                t = str(text or "")
+                tl = t.lower()
+                return any(v.lower() in tl for v in HIROSHIMA_VARIANTS)
+            mask = self.df_all["__全文__"].apply(_contains_any)
+
         self.df_hits = self.df_all[mask].copy()
         self.page = 1
         self.update_table()
         self.close_detail_if_exists()
-        self.label_count.config(text=f"広島関連検索 件数 {len(self.df_hits)}")
+        self.label_count.config(text=f"広島関係 件数 {len(self.df_hits)}")
 
-    # ==== 詳細表示（完全版）====
+        # 検索欄に「広島」を残す
+        self.entry.delete(0, tk.END)
+        self.entry.insert(0, "広島")
     def on_row_double_click(self, event):
         if self.df_hits is None or self.df_hits.empty:
             return
