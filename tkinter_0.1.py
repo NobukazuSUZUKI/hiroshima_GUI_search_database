@@ -58,10 +58,8 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Audio Search — tkinter")
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        self.root.geometry(f"{sw}x{sh}+0+0")
-        self.root.resizable(True, True)
+        # 起動時に最大化
+        self.root.state("zoomed")
 
         # ==== ヘッダー ====
         header = tk.Frame(self.root)
@@ -212,8 +210,8 @@ class App:
 
         screen_h = self.root.winfo_screenheight()
         screen_w = self.root.winfo_screenwidth()
-        win_w = int(screen_w * 0.5)
-        win_h = screen_h - 40
+        win_w = int(screen_w * 0.5)   # 右半分
+        win_h = screen_h              # 上下いっぱい
         x = screen_w - win_w
         y = 0
 
@@ -224,11 +222,11 @@ class App:
 
         rootf = tk.Frame(win)
         rootf.pack(fill="both", expand=True)
-        rootf.rowconfigure(0, weight=1)
-        rootf.rowconfigure(1, weight=0)
+        rootf.rowconfigure(0, weight=1)  # 本文スクロール
+        rootf.rowconfigure(1, weight=0)  # ボタンバー固定
         rootf.columnconfigure(0, weight=1)
 
-        # スクロール付き本文（ボタンは下部に固定）
+        # 本文（スクロール可能）
         scroll_frame = tk.Frame(rootf)
         scroll_frame.grid(row=0, column=0, sticky="nsew")
         canvas = tk.Canvas(scroll_frame, highlightthickness=0)
@@ -259,7 +257,7 @@ class App:
             val.pack(fill="x", padx=pad)
             self.detail_labels[c] = val
 
-        # ボタンバー（常に表示される）
+        # ボタンバー（常に下に固定）
         btnbar = tk.Frame(rootf)
         btnbar.grid(row=1, column=0, sticky="ew")
         btnbar.columnconfigure(2, weight=1)
@@ -292,7 +290,7 @@ class App:
         self.prev_btn = None
         self.next_btn = None
 
-    # ==== ナビ（元の状態に戻す：画面閉じずに内容更新のみ） ====
+    # ==== ナビ（元のシンプル動作） ====
     def nav_detail(self, delta: int):
         if self.detail_abs_index is None or self.df_hits is None:
             return
