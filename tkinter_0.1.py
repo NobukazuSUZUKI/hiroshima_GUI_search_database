@@ -213,7 +213,7 @@ class App:
         screen_h = self.root.winfo_screenheight()
         screen_w = self.root.winfo_screenwidth()
         win_w = int(screen_w * 0.5)
-        win_h = screen_h - 40  # 上下ギリギリまで広げる
+        win_h = screen_h - 40
         x = screen_w - win_w
         y = 0
 
@@ -228,7 +228,7 @@ class App:
         rootf.rowconfigure(1, weight=0)
         rootf.columnconfigure(0, weight=1)
 
-        # スクロール付き本文
+        # スクロール付き本文（ボタンは下部に固定）
         scroll_frame = tk.Frame(rootf)
         scroll_frame.grid(row=0, column=0, sticky="nsew")
         canvas = tk.Canvas(scroll_frame, highlightthickness=0)
@@ -259,7 +259,7 @@ class App:
             val.pack(fill="x", padx=pad)
             self.detail_labels[c] = val
 
-        # ボタンバー
+        # ボタンバー（常に表示される）
         btnbar = tk.Frame(rootf)
         btnbar.grid(row=1, column=0, sticky="ew")
         btnbar.columnconfigure(2, weight=1)
@@ -292,7 +292,7 @@ class App:
         self.prev_btn = None
         self.next_btn = None
 
-    # ==== ナビ ====
+    # ==== ナビ（元の状態に戻す：画面閉じずに内容更新のみ） ====
     def nav_detail(self, delta: int):
         if self.detail_abs_index is None or self.df_hits is None:
             return
@@ -302,19 +302,6 @@ class App:
         self.detail_abs_index = new_idx
         row = self.df_hits.iloc[new_idx]
         self.update_detail_labels(row)
-
-        # Treeviewの選択も同期
-        start = (self.page - 1) * PAGE_SIZE
-        new_page = (new_idx // PAGE_SIZE) + 1
-        if new_page != self.page:
-            self.page = new_page
-            self.update_table()
-        rel_idx = new_idx - (self.page-1)*PAGE_SIZE
-        items = self.tree.get_children()
-        if 0 <= rel_idx < len(items):
-            item_id = items[rel_idx]
-            self.tree.selection_set(item_id)
-            self.tree.see(item_id)
 
     def update_detail_labels(self, row: pd.Series):
         if not self.detail_labels:
