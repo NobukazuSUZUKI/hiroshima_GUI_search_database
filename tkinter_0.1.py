@@ -44,9 +44,11 @@ def load_dataset(path: Path):
     if not pref_cols:
         pref_cols = list(df.columns)
     df["__全文__"] = df[pref_cols].agg("　".join, axis=1)
-    main_cols = [c for c in ["No.","登録番号","タイトル","作曲者","演奏者","ジャンル","メディア"] if c in df.columns]
+    # ✅ 表示カラムの順番を固定（No.は不要）
+    main_cols = [c for c in ["登録番号","メディア","タイトル","演奏者","作曲者","ジャンル"] if c in df.columns]
     if not main_cols:
-        main_cols = list(df.columns)[:7]
+        main_cols = list(df.columns)[:6]
+
     return df, main_cols
 
 def keyword_mask(df, q: str):
