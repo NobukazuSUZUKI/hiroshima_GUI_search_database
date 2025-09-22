@@ -22,10 +22,6 @@ FONT_LARGE = ("Meiryo", 16)
 FONT_MED   = ("Meiryo", 12)
 FONT_BTN   = ("Meiryo", 12)
 
-DETAIL_BTN_FONT   = ("Meiryo", 12)
-DETAIL_BTN_WIDTH  = 10
-DETAIL_BTN_HEIGHT = 1
-
 # ========= データ読み込み =========
 def load_dataset(path: Path):
     df = pd.read_excel(path, sheet_name=SHEET_NAME)
@@ -93,6 +89,10 @@ class App:
         # ==== 機能ボタン ====
         btns = tk.Frame(self.root, bg="white")
         btns.pack(anchor="w", padx=40, pady=(8, 12))
+
+        # ホームボタン追加
+        tk.Button(btns, text="ホーム", font=FONT_BTN, width=12, height=1,
+                  command=self.reset_home).pack(side="left", padx=8)
 
         tk.Button(btns, text="人名検索", font=FONT_BTN, width=12, height=1,
                   command=self.search_people).pack(side="left", padx=8)
@@ -174,6 +174,14 @@ class App:
         self.table_area.pack(fill="both", expand=True, padx=20, pady=8)
         self.nav.pack(anchor="w", padx=40, pady=4)
 
+    # ==== ホームに戻る ====
+    def reset_home(self):
+        self.df_hits = None
+        self.page = 1
+        self.update_table()
+        self.label_count.config(text="")
+        self.entry.delete(0, tk.END)
+
     # ==== ジャンル検索モーダル ====
     def open_genre_dialog(self):
         if "ジャンル" not in self.df_all.columns:
@@ -182,9 +190,11 @@ class App:
 
         dlg = tk.Toplevel(self.root, bg="white")
         dlg.title("ジャンル検索")
-        w, h = 800, 600
+
+        # 大きめの画面（検索リストと同程度）
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        x, y = (sw - w)//2, (sh - h)//3
+        w, h = int(sw * 0.8), int(sh * 0.8)
+        x, y = (sw - w)//2, (sh - h)//2
         dlg.geometry(f"{w}x{h}+{x}+{y}")
         dlg.resizable(True, True)
         dlg.transient(self.root)
@@ -195,19 +205,8 @@ class App:
             .pack(pady=(12, 6))
 
         host = tk.Frame(dlg, bg="white")
-        host.pack(fill="both", expand=True, padx=12, pady=12)
+        host.pack(fill="both", expand=True, padx=20, pady=20)
 
-        canvas = tk.Canvas(host, highlightthickness=0, bg="white")
-        vbar = ttk.Scrollbar(host, orient="vertical", command=canvas.yview)
-        inner = tk.Frame(canvas, bg="white")
-        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-        canvas.configure(yscrollcommand=vbar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        vbar.pack(side="right", fill="y")
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(inner_id, width=e.width))
-
-        # 親ジャンルとサブジャンル
         groups = {
             "クラシック": ["交響曲","管弦楽曲","協奏曲","室内楽曲","独奏曲","歌劇","声楽曲","宗教曲","現代音楽","その他"],
             "ポピュラー": ["ヴォーカル, フォーク","ソウル, ブルース","ジャズ, ジャズ・ボーカル","ロック",
@@ -219,7 +218,7 @@ class App:
         }
 
         for parent, subs in groups.items():
-            frame = tk.Frame(inner, bg="white", pady=8)
+            frame = tk.Frame(host, bg="white", pady=8)
             frame.pack(fill="x", pady=4)
 
             tk.Label(frame, text=parent, font=("Meiryo", 14, "bold"),
