@@ -14,6 +14,7 @@ except Exception:
 
 # ========= 設定 =========
 SHEET_NAME = "Sheet"
+GENRE_SHEET_NAME = "Genre"
 PAGE_SIZE  = 10   # 検索結果は10行表示
 
 FONT_TITLE = ("Meiryo", 24, "bold")
@@ -30,23 +31,6 @@ DETAIL_BTN_HEIGHT = 1
 DETAIL_MARGIN_TOP = 40
 DETAIL_MARGIN_BOTTOM = 80
 DETAIL_MARGIN_RIGHT = 40  # 右余白
-
-# ジャンル定義（ご指定の13種）
-GENRES = [
-    "交響曲",
-    "管弦楽曲",
-    "協奏曲",
-    "室内楽曲",
-    "独奏曲",
-    "歌劇",
-    "声楽曲",
-    "宗教音楽",
-    "現代音楽・電子音楽",
-    "コレクション他",
-    "ジャズ",
-    "邦楽・日本民謡",
-    "ポピュラー",
-]
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -65,6 +49,14 @@ def load_dataset(path: Path):
     if not main_cols:
         main_cols = list(df.columns)[:7]
     return df, main_cols
+
+def load_genre_sheet(path: Path):
+    # ヘッダー無し2列（A=code, B=name）として読み込む
+    df = pd.read_excel(path, sheet_name=GENRE_SHEET_NAME, header=None, usecols=[0,1], names=["code","name"])
+    df = df.fillna("")
+    # 空行除去
+    df = df[(df["code"].astype(str) != "") & (df["name"].astype(str) != "")]
+    return df
 
 def keyword_mask(df, q: str):
     if not q.strip():
@@ -102,23 +94,23 @@ class App:
 
         # ==== キーワード検索 ====
         search_frame = tk.Frame(self.root)
-        search_frame.pack(pady=(16, 8))
+        search_frame.pack(pady=(10, 6))
         tk.Label(search_frame, text="キーワード検索", font=FONT_LARGE).pack(anchor="center")
         entry_row = tk.Frame(search_frame)
-        entry_row.pack(pady=8)
+        entry_row.pack(pady=6)
         self.entry = tk.Entry(entry_row, width=40, font=FONT_LARGE)
         self.entry.pack(side="left", padx=(0,10), ipady=8)
         self.entry.bind("<Return>", lambda e: self.do_search())
 
         # ==== 機能ボタン ====
         btns = tk.Frame(self.root)
-        btns.pack(anchor="w", padx=40, pady=(8, 12))
+        btns.pack(anchor="w", padx=40, pady=(6, 10))
 
         tk.Button(btns, text="人名検索", font=FONT_BTN, width=12, height=1,
                   command=self.search_people).pack(side="left", padx=8)
-        # ← ここを「ジャンル検索」モーダル起動に変更
+        # 「ジャンル検索」= 同じ画面に開閉トグル
         tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=12, height=1,
-                  command=self.open_genre_dialog).pack(side="left", padx=8)
+                  command=self.toggle_genre_panel).pack(side="left", padx=8)
         tk.Button(btns, text="広島関係", font=FONT_BTN, width=12, height=1,
                   command=self.search_hiroshima).pack(side="left", padx=8)
         tk.Button(btns, text="詳細検索", font=FONT_BTN, width=12, height=1,
@@ -128,15 +120,23 @@ class App:
         self.label_count = tk.Label(self.root, text="", font=FONT_MED)
         self.label_count.pack(anchor="w", padx=40)
 
+        # ==== ジャンルパネル（同画面内・開閉式・スクロール） ====
+        self.genre_panel_host = tk.Frame(self.root)  # ここに表示/非表示
+        self.genre_visible = False  # 初期は非表示
+
         # ==== 検索結果テーブル ====
         self.table_area = tk.Frame(self.root)
+        self.table_area.pack(fill="both", expand=True, padx=20, pady=8)
+
         style = ttk.Style()
         style.configure("Treeview", rowheight=24, font=FONT_MED)
         style.configure("Treeview.Heading", font=FONT_MED)
         style.map("Treeview", background=[("selected", "#d0e0ff")])
+
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.bind("<Double-1>", self.on_row_double_click)
+        # 詳細開いてる時は閉じないようにする
         self.tree.bind("<<TreeviewSelect>>", self.on_row_select_maybe_close_detail)
 
         scroll = ttk.Scrollbar(self.table_area, orient="vertical", command=self.tree.yview)
@@ -155,6 +155,7 @@ class App:
         excel_path = Path(__file__).resolve().parent / "all_data.xlsx"
         try:
             self.df_all, self.main_cols = load_dataset(excel_path)
+            self.df_genre = load_genre_sheet(excel_path)
         except Exception as e:
             messagebox.showerror("エラー", f"Excel 読み込み失敗: {e}")
             self.root.destroy()
@@ -176,6 +177,118 @@ class App:
         self.prev_btn = None
         self.next_btn = None
 
+    # ==== ジャンルパネル（開閉） ====
+    def toggle_genre_panel(self):
+        if self.genre_visible:
+            # 閉じる
+            for w in self.genre_panel_host.winfo_children():
+                w.destroy()
+            self.genre_panel_host.pack_forget()
+            self.genre_visible = False
+        else:
+            # 開く（作り直す）
+            for w in self.genre_panel_host.winfo_children():
+                w.destroy()
+            self.build_genre_panel(self.genre_panel_host)
+            self.genre_panel_host.pack(fill="x", padx=20, pady=(6, 10))
+            self.genre_visible = True
+
+    def build_genre_panel(self, parent: tk.Frame):
+        # スクロール付きにする
+        host = tk.Frame(parent)
+        host.pack(fill="x", expand=False)
+
+        canvas = tk.Canvas(host, highlightthickness=0, height=260)  # 1画面で収まらない時のため
+        vbar = ttk.Scrollbar(host, orient="vertical", command=canvas.yview)
+        body = tk.Frame(canvas)
+        body_id = canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side="left", fill="x", expand=True)
+        vbar.pack(side="right", fill="y")
+        body.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.bind(
+            "<Configure>",
+            lambda e: canvas.itemconfigure(body_id, width=e.width)
+        )
+
+        # 系統ごとに描画
+        groups = self._group_genres(self.df_genre)
+
+        # R（クラシック）大きめ見出し
+        if "R" in groups:
+            self._render_group(body, "クラシック", groups["R"]["subs"], big=True)
+        # Y（ポピュラー）大きめ見出し
+        if "Y" in groups:
+            self._render_group(body, "ポピュラー", groups["Y"]["subs"], big=True)
+        # その他の系統（B, G, W）があれば通常サイズ見出しで
+        for key, title in [("B", "その他の音楽"), ("G", "音楽以外"), ("W", "児童")]:
+            if key in groups:
+                self._render_group(body, title, groups[key]["subs"], big=False)
+
+    def _group_genres(self, df: pd.DataFrame):
+        """
+        A列のコードで上位と下位に分ける。
+        例: R は上位、R1..R10 は下位。name はB列。
+        戻り値: { "R": {"title":"クラシック","subs":[...]} , ... }
+        """
+        groups = {}
+        for _, r in df.iterrows():
+            code = str(r["code"]).strip()
+            name = str(r["name"]).strip()
+            if not code or not name:
+                continue
+            head = code[0]  # 先頭文字（R/Y/B/G/Wなど）
+            groups.setdefault(head, {"title": None, "subs": []})
+            if len(code) == 1:
+                # 上位
+                groups[head]["title"] = name
+            else:
+                # 下位
+                groups[head]["subs"].append(name)
+        return groups
+
+    def _render_group(self, parent: tk.Frame, title: str, subs: list, big: bool):
+        wrap = tk.Frame(parent)
+        wrap.pack(fill="x", pady=(6, 2))
+
+        # 見出しボタン
+        if big:
+            btn = tk.Button(
+                wrap, text=title,
+                font=("Meiryo", 14, "bold"),
+                width=20, height=2, bg="#eef6ff",
+                command=lambda g=title: self.search_by_genre(g)
+            )
+        else:
+            btn = tk.Button(
+                wrap, text=title,
+                font=("Meiryo", 12, "bold"),
+                width=18, height=1,
+                command=lambda g=title: self.search_by_genre(g)
+            )
+        btn.pack(anchor="w", padx=4, pady=(2, 4))
+
+        # 下位ボタン（横並び→折返し。gridで複数列）
+        grid = tk.Frame(parent)
+        grid.pack(fill="x", padx=4, pady=(0, 8))
+
+        if not subs:
+            return
+
+        max_cols = 5
+        for i, name in enumerate(subs):
+            r, c = divmod(i, max_cols)
+            b = tk.Button(
+                grid, text=name,
+                font=FONT_BTN,
+                width=18, height=1,
+                command=lambda g=name: self.search_by_genre(g)
+            )
+            b.grid(row=r, column=c, padx=4, pady=4, sticky="w")
+
     # ==== 検索処理 ====
     def do_search(self):
         q = self.entry.get()
@@ -186,14 +299,15 @@ class App:
         self.close_detail_if_exists()
 
     def update_table(self):
+        # いったん消す
         for r in self.tree.get_children():
             self.tree.delete(r)
         if self.df_hits is None or self.df_hits.empty:
             self.label_count.config(text="ヒット件数: 0")
-            self.table_area.pack_forget()
             self.nav.pack_forget()
             self.close_detail_if_exists()
             return
+
         total = len(self.df_hits)
         start = (self.page - 1) * PAGE_SIZE
         end   = min(start + PAGE_SIZE, total)
@@ -204,9 +318,11 @@ class App:
             self.tree.insert("", "end", values=vals, tags=(tag,))
         self.tree.tag_configure("odd", background="#f2f2f2")
         self.tree.tag_configure("even", background="white")
+
         pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
         self.label_count.config(text=f"ヒット件数: {total}   ページ {self.page}/{pages}")
-        self.table_area.pack(fill="both", expand=True, padx=20, pady=8)
+
+        # ページナビは常時表示
         self.nav.pack(anchor="w", padx=40, pady=4)
 
     # ==== ダブルクリックで詳細を開く ====
@@ -385,63 +501,34 @@ class App:
         self.page = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         self.update_table()
 
-    # ==== ジャンル検索モーダル ====
-    def open_genre_dialog(self):
+    # ==== ジャンル検索本体 ====
+    def search_by_genre(self, label_text: str):
+        """
+        B列の文字列でジャンル列に部分一致検索。
+        カンマ区切りは「どれかに一致」でOKとする。
+        """
         if "ジャンル" not in self.df_all.columns:
             messagebox.showwarning("警告", "Excel に『ジャンル』列が見つかりません。")
             return
 
-        dlg = tk.Toplevel(self.root)
-        dlg.title("ジャンル検索")
-        # 適度なサイズ（600x520）で中央付近
-        w, h = 600, 520
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        x, y = (sw - w)//2, (sh - h)//3
-        dlg.geometry(f"{w}x{h}+{x}+{y}")
-        dlg.resizable(True, True)
-        dlg.transient(self.root)
-        dlg.grab_set()
-        dlg.focus_force()
+        # カンマ（全角/半角）で分割してどれかに一致したら採用
+        tokens = [t.strip() for t in re.split(r"[,\u3001]", label_text) if t.strip()]
+        if not tokens:
+            tokens = [label_text.strip()] if label_text.strip() else []
 
-        # 上部に案内
-        tk.Label(dlg, text="ジャンルを選択してください", font=FONT_LARGE).pack(pady=(12, 6))
+        if tokens:
+            # OR結合の正規表現（特殊文字はエスケープ）
+            pattern = "|".join(re.escape(t) for t in tokens)
+            mask = self.df_all["ジャンル"].str.contains(pattern, case=False, na=False)
+        else:
+            # 念のため
+            mask = self.df_all["ジャンル"].str.contains(label_text, case=False, na=False)
 
-        # スクロール付きボタンエリア
-        host = tk.Frame(dlg)
-        host.pack(fill="both", expand=True, padx=12, pady=12)
-
-        canvas = tk.Canvas(host, highlightthickness=0)
-        vbar = ttk.Scrollbar(host, orient="vertical", command=canvas.yview)
-        inner = tk.Frame(canvas)
-        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-        canvas.configure(yscrollcommand=vbar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        vbar.pack(side="right", fill="y")
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(inner_id, width=e.width))
-
-        # ボタンをグリッド配置（4列）
-        cols = 4
-        for i, g in enumerate(GENRES):
-            b = tk.Button(inner, text=g, font=FONT_BTN, width=16, height=1,
-                          command=lambda g=g, dlg=dlg: self.search_by_genre(g, dlg))
-            r, c = divmod(i, cols)
-            b.grid(row=r, column=c, padx=6, pady=6, sticky="ew")
-
-        # 閉じる
-        tk.Button(dlg, text="閉じる", font=FONT_BTN, width=10, command=dlg.destroy)\
-            .pack(pady=(0, 10))
-
-    def search_by_genre(self, genre: str, dlg: tk.Toplevel = None):
-        # 「ジャンル」列の部分一致でフィルタ
-        mask = self.df_all["ジャンル"].str.contains(genre, na=False)
         self.df_hits = self.df_all[mask].copy()
         self.page = 1
         self.update_table()
         self.close_detail_if_exists()
-        self.label_count.config(text=f"ジャンル検索: {genre}　件数 {len(self.df_hits)}")
-        if dlg and dlg.winfo_exists():
-            dlg.destroy()
+        self.label_count.config(text=f"ジャンル検索: {label_text}　件数 {len(self.df_hits)}")
 
     # ==== プレースホルダ ====
     def search_people(self): messagebox.showinfo("人名検索", "後で実装予定です。")
