@@ -43,7 +43,9 @@ def load_dataset(path: Path):
     ] if c in df.columns]
     if not pref_cols:
         pref_cols = list(df.columns)
+    # 全文（まとめ列）
     df["__全文__"] = df[pref_cols].agg("　".join, axis=1)
+
     # ✅ 表示カラムの順番を固定（No.は不要）
     main_cols = [c for c in ["登録番号","メディア","タイトル","演奏者","作曲者","ジャンル"] if c in df.columns]
     if not main_cols:
@@ -120,7 +122,7 @@ class App:
         # ==== 検索結果テーブル ====
         self.table_area = tk.Frame(self.root, bg="white")
         style = ttk.Style()
-        # 交互色が見えるようにデフォルト背景も白で固定
+        # 背景/選択時の文字色（黒）を固定
         style.configure("Treeview",
                         rowheight=24,
                         font=FONT_MED,
@@ -129,7 +131,7 @@ class App:
         style.configure("Treeview.Heading", font=FONT_MED)
         style.map("Treeview",
                   background=[("selected", "#d0e0ff")],
-                  foreground=[("selected", "black")])  # ← 追加！
+                  foreground=[("selected", "black")])  # 選択時も黒文字
 
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -141,7 +143,6 @@ class App:
         # 交互色タグ（しましま）
         self.tree.tag_configure("odd", background="#f2f2f2")
         self.tree.tag_configure("even", background="white")
-
 
         # 列リサイズを完全ブロック
         self.tree.bind("<Button-1>", self._block_resize)
@@ -173,14 +174,12 @@ class App:
         self.tree.configure(columns=cols_ids)
         for i, c in enumerate(self.main_cols):
             self.tree.heading(cols_ids[i], text=c)
-
+            # タイトル・演奏者・作曲者は幅広
             if c in ["タイトル", "演奏者", "作曲者"]:
-                col_width = 360   # ✅ 180 の 2倍
+                col_width = 360  # 180の2倍
             else:
-                col_width = 180   # それ以外は標準
-
+                col_width = 180
             self.tree.column(cols_ids[i], width=col_width, anchor="w", stretch=False)
-
 
         # 状態
         self.df_hits = None
@@ -293,6 +292,23 @@ class App:
         self.label_count.config(text=f"ジャンル検索: {genre}　件数 {len(self.df_hits)}")
         if dlg and dlg.winfo_exists():
             dlg.destroy()
+
+    # ==== ✅ 広島関係検索 ====
+    def search_hiroshima(self):
+        """
+        『広島』『ヒロシマ』を全文（__全文__）から部分一致で検索。
+        """
+        if "__全文__" not in self.df_all.columns:
+            messagebox.showerror("エラー", "検索対象列『__全文__』が見つかりません。Excelの読み込み処理をご確認ください。")
+            return
+
+        pattern = r"(広島|ヒロシマ)"
+        mask = self.df_all["__全文__"].str.contains(pattern, na=False)
+        self.df_hits = self.df_all[mask].copy()
+        self.page = 1
+        self.update_table()
+        self.close_detail_if_exists()
+        self.label_count.config(text=f"広島関係検索（広島/ヒロシマ）: 件数 {len(self.df_hits)}")
 
     # ==== 詳細表示（完全版）====
     def on_row_double_click(self, event):
@@ -488,7 +504,6 @@ class App:
 
     # ==== プレースホルダ ====
     def search_people(self): messagebox.showinfo("人名検索", "後で実装予定です。")
-    def search_hiroshima(self): messagebox.showinfo("広島関係", "後で実装予定です。")
     def search_advanced(self): messagebox.showinfo("詳細検索", "後で実装予定です。")
 
 # ========= 起動 =========
