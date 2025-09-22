@@ -25,7 +25,7 @@ FONT_BTN   = ("Meiryo", 16)
 DETAIL_WIDTH_PCT = 0.50   # 右側“全体”＝画面の右半分
 DETAIL_TOP_MARGIN = 0     # 上マージン
 DETAIL_HEIGHT_PCT = 1.00  # 高さは親ウィンドウいっぱい
-FADE_IN_MS = 40           # ご指定のフェード速度（ミリ秒）
+FADE_IN_MS = 40           # フェード速度（ミリ秒）
 FADE_STEP_MS = 10         # フェード刻み（ミリ秒）
 
 # ========= データ読み込み =========
@@ -54,69 +54,6 @@ def keyword_mask(df, q: str):
     for p in parts:
         mask = mask & df["__全文__"].str.contains(p, case=False, na=False)
     return mask
-
-# ========= 詳細表示（右側いっぱい・スクロール無し・高速フェード） =========
-def show_detail_right_fade(row: pd.Series, parent: tk.Tk):
-    parent.update_idletasks()
-    px = parent.winfo_rootx()
-    py = parent.winfo_rooty()
-    pw = parent.winfo_width()
-    ph = parent.winfo_height()
-
-    win_w = max(480, int(pw * DETAIL_WIDTH_PCT))       # 右半分
-    win_h = max(300, int(ph * DETAIL_HEIGHT_PCT))      # 親の高さに合わせる
-    x = px + pw - win_w                                # 右端に揃える
-    y = py + DETAIL_TOP_MARGIN
-
-    win = tk.Toplevel(parent)
-    win.title("詳細表示")
-    win.geometry(f"{win_w}x{win_h}+{x}+{y}")
-    win.resizable(True, True)
-    try:
-        win.attributes("-alpha", 0.0)  # 透明から
-    except Exception:
-        pass
-
-    # ---- 中身（スクロール無しなのでシンプルなFrame + Label）----
-    pad = 16
-    wrap = win_w - pad*2  # テキストの折返し幅をウィンドウ幅に合わせる
-
-    frm = tk.Frame(win)
-    frm.pack(fill="both", expand=True)
-
-    title_txt = row.get("タイトル", "") if "タイトル" in row.index else ""
-    tk.Label(frm, text=title_txt, font=("Meiryo", 20, "bold"),
-             anchor="w", justify="left", wraplength=wrap).pack(fill="x", padx=pad, pady=(pad, 8))
-
-    # 表示する項目（※「演奏者（追加）」「内容（追加）」は除外）
-    fields = [c for c in ["作曲者","演奏者","ジャンル","メディア",
-                          "登録番号","レコード番号","レーベル","内容"] if c in row.index]
-    for c in fields:
-        tk.Label(frm, text=c, font=FONT_MED, anchor="w", fg="#555")\
-            .pack(fill="x", padx=pad, pady=(8, 0))
-        tk.Label(frm, text=str(row[c]), font=FONT_MED, anchor="w",
-                justify="left", wraplength=wrap)\
-            .pack(fill="x", padx=pad)
-
-    # 余白
-    tk.Frame(frm, height=10).pack()
-
-    # ---- フェードイン（40ms） ----
-    try:
-        steps = max(1, FADE_IN_MS // FADE_STEP_MS)
-        def _fade(step=0):
-            a = min(1.0, (step + 1) / steps)
-            try:
-                win.attributes("-alpha", a)
-            except Exception:
-                pass
-            if step + 1 < steps:
-                win.after(FADE_STEP_MS, _fade, step + 1)
-        _fade(0)
-    except Exception:
-        pass
-
-    return win
 
 # ========= メインアプリ =========
 class App:
@@ -184,7 +121,7 @@ class App:
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.bind("<Double-1>", self.on_row_double_click)
 
-        # ●行選択（シングルクリック等）で詳細を消す
+        # 行選択（シングルクリック等）で詳細を消す
         self.tree.bind("<<TreeviewSelect>>", self.on_row_select_close_detail)
 
         scroll = ttk.Scrollbar(self.table_area, orient="vertical", command=self.tree.yview)
@@ -216,7 +153,8 @@ class App:
 
         self.df_hits = None
         self.page = 1
-        self.detail_win = None  # 右側詳細は常に1枚
+        self.detail_win = None      # 右側詳細は常に1枚
+        self.detail_abs_index = None  # df_hits 上の絶対インデックス（前後移動用）
 
     # ==== 検索処理 ====
     def do_search(self):
@@ -234,7 +172,6 @@ class App:
             self.label_count.config(text="ヒット件数: 0")
             self.table_area.pack_forget()
             self.nav.pack_forget()
-            # 検索結果が空になったら詳細も消す
             self.close_detail_if_exists()
             return
 
@@ -256,22 +193,131 @@ class App:
         self.table_area.pack(fill="both", expand=True, padx=20, pady=10)
         self.nav.pack(anchor="w", padx=50, pady=5)
 
-    # ==== 行ダブルクリック：詳細を右側に表示 ====
+    # ==== 詳細ウィンドウの生成・表示 ====
+    def open_detail_at_index(self, abs_index: int):
+        """df_hits 上の絶対インデックス abs_index のレコードで詳細を表示する"""
+        if self.df_hits is None or self.df_hits.empty:
+            return
+        if abs_index < 0 or abs_index >= len(self.df_hits):
+            return
+
+        row = self.df_hits.iloc[abs_index]
+        self.detail_abs_index = abs_index
+
+        # 既存詳細を閉じる
+        self.close_detail_if_exists()
+
+        # 位置とサイズを算出（右半分・親いっぱい）
+        self.root.update_idletasks()
+        px = self.root.winfo_rootx()
+        py = self.root.winfo_rooty()
+        pw = self.root.winfo_width()
+        ph = self.root.winfo_height()
+        win_w = max(480, int(pw * DETAIL_WIDTH_PCT))
+        win_h = max(300, int(ph * DETAIL_HEIGHT_PCT))
+        x = px + pw - win_w
+        y = py + DETAIL_TOP_MARGIN
+
+        # Toplevel 作成（透明→フェード）
+        win = tk.Toplevel(self.root)
+        win.title("詳細表示")
+        win.geometry(f"{win_w}x{win_h}+{x}+{y}")
+        win.resizable(True, True)
+        try:
+            win.attributes("-alpha", 0.0)
+        except Exception:
+            pass
+
+        # ===== レイアウト：上＝内容エリア(拡張), 下＝ボタン群(固定) =====
+        # 親フレーム
+        rootf = tk.Frame(win)
+        rootf.pack(fill="both", expand=True)
+        rootf.rowconfigure(0, weight=1)  # 内容エリアを伸縮
+        rootf.rowconfigure(1, weight=0)  # ボタン列は固定
+        rootf.columnconfigure(0, weight=1)
+
+        # 内容エリア（スクロール無し）
+        content = tk.Frame(rootf)
+        content.grid(row=0, column=0, sticky="nsew")
+
+        pad = 16
+        wrap = win_w - pad*2
+
+        title_txt = row.get("タイトル", "") if "タイトル" in row.index else ""
+        tk.Label(content, text=title_txt, font=("Meiryo", 20, "bold"),
+                 anchor="w", justify="left", wraplength=wrap)\
+            .pack(fill="x", padx=pad, pady=(pad, 8))
+
+        # 表示する項目（「演奏者（追加）」「内容（追加）」は除外）
+        fields = [c for c in ["作曲者","演奏者","ジャンル","メディア",
+                              "登録番号","レコード番号","レーベル","内容"] if c in row.index]
+        for c in fields:
+            tk.Label(content, text=c, font=FONT_MED, anchor="w", fg="#555")\
+                .pack(fill="x", padx=pad, pady=(8, 0))
+            tk.Label(content, text=str(row[c]), font=FONT_MED, anchor="w",
+                     justify="left", wraplength=wrap)\
+                .pack(fill="x", padx=pad)
+
+        tk.Frame(content, height=10).pack()  # 少し余白
+
+        # ボタンバー（最下部固定）
+        btnbar = tk.Frame(rootf)
+        btnbar.grid(row=1, column=0, sticky="ew")
+        btnbar.columnconfigure(0, weight=0)
+        btnbar.columnconfigure(1, weight=0)
+        btnbar.columnconfigure(2, weight=1)  # 右余白用
+        btnbar.columnconfigure(3, weight=0)
+
+        # 前/次ボタン
+        prev_btn = tk.Button(btnbar, text="前資料", font=FONT_BTN, width=10,
+                             command=lambda: self.nav_detail(-1))
+        next_btn = tk.Button(btnbar, text="次資料", font=FONT_BTN, width=10,
+                             command=lambda: self.nav_detail(+1))
+        prev_btn.grid(row=0, column=0, padx=(14, 8), pady=(8, 12), sticky="w")
+        next_btn.grid(row=0, column=1, padx=(0, 8), pady=(8, 12), sticky="w")
+
+        # 閉じるボタン（右寄せ）
+        close_btn = tk.Button(btnbar, text="閉じる", font=FONT_BTN, width=10,
+                              command=self.close_detail_if_exists)
+        close_btn.grid(row=0, column=3, padx=(0, 14), pady=(8, 12), sticky="e")
+
+        # 前後の境界でボタンを無効化
+        if self.detail_abs_index <= 0:
+            prev_btn.configure(state="disabled")
+        if self.detail_abs_index >= len(self.df_hits) - 1:
+            next_btn.configure(state="disabled")
+
+        # フェードイン
+        try:
+            steps = max(1, FADE_IN_MS // FADE_STEP_MS)
+            def _fade(step=0):
+                a = min(1.0, (step + 1) / steps)
+                try:
+                    win.attributes("-alpha", a)
+                except Exception:
+                    pass
+                if step + 1 < steps:
+                    win.after(FADE_STEP_MS, _fade, step + 1)
+            _fade(0)
+        except Exception:
+            pass
+
+        self.detail_win = win
+
+    # ==== ダブルクリックで詳細を開く ====
     def on_row_double_click(self, event):
         if self.df_hits is None or self.df_hits.empty:
             return
         sel = self.tree.selection()
-        if not sel: return
+        if not sel:
+            return
         item_id = sel[0]
         idx_in_page = self.tree.index(item_id)
         start = (self.page - 1) * PAGE_SIZE
-        row = self.df_hits.iloc[start + idx_in_page]
+        abs_idx = start + idx_in_page
+        self.open_detail_at_index(abs_idx)
 
-        # 既存詳細を閉じてから新規表示
-        self.close_detail_if_exists()
-        self.detail_win = show_detail_right_fade(row, self.root)
-
-    # ==== 行選択時：詳細を閉じる（背後に残さない） ====
+    # ==== シングル選択時は詳細を閉じる ====
     def on_row_select_close_detail(self, event):
         self.close_detail_if_exists()
 
@@ -282,6 +328,16 @@ class App:
         except Exception:
             pass
         self.detail_win = None
+
+    # ==== 詳細の前後ナビゲーション ====
+    def nav_detail(self, delta: int):
+        if self.detail_abs_index is None:
+            return
+        new_idx = self.detail_abs_index + delta
+        if new_idx < 0 or self.df_hits is None or new_idx >= len(self.df_hits):
+            return
+        # 古い詳細を閉じ、新しい詳細を開く
+        self.open_detail_at_index(new_idx)
 
     # ==== ページ操作 ====
     def prev_page(self):
