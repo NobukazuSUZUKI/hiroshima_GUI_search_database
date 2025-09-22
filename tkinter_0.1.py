@@ -26,8 +26,9 @@ DETAIL_BTN_FONT   = ("Meiryo", 12)
 DETAIL_BTN_WIDTH  = 10
 DETAIL_BTN_HEIGHT = 1
 
-DETAIL_MARGIN_TOP = 40   # 上余白(px)
-DETAIL_MARGIN_BOTTOM = 80  # 下余白(px)
+# 詳細ウィンドウの上下余白（ピクセル）
+DETAIL_MARGIN_TOP = 40
+DETAIL_MARGIN_BOTTOM = 80
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -118,6 +119,7 @@ class App:
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.bind("<Double-1>", self.on_row_double_click)
 
+        # シングル選択で詳細を閉じる（※詳細が開いている時は閉じないよう後述で制御）
         self.tree.bind("<<TreeviewSelect>>", self.on_row_select_maybe_close_detail)
 
         scroll = ttk.Scrollbar(self.table_area, orient="vertical", command=self.tree.yview)
@@ -150,6 +152,7 @@ class App:
         self.df_hits = None
         self.page = 1
 
+        # 詳細ウィンドウ管理
         self.detail_win = None
         self.detail_abs_index = None
         self.detail_labels = {}
@@ -203,7 +206,10 @@ class App:
         self.close_detail_if_exists()
         self.create_detail_window(self.df_hits.iloc[abs_idx], abs_idx)
 
+    # ==== シングル選択時：詳細が開いている間は閉じない ====
     def on_row_select_maybe_close_detail(self, event):
+        if self.detail_win and self.detail_win.winfo_exists():
+            return
         self.close_detail_if_exists()
 
     # ==== 詳細ウィンドウ ====
@@ -222,6 +228,12 @@ class App:
         win.title("詳細表示")
         win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         win.resizable(True, True)
+
+        # ▼▼ ここがポイント：詳細ウィンドウをモーダル化してキー入力を奪う ▼▼
+        win.transient(self.root)   # オーナーの子ウィンドウとして扱う
+        win.grab_set()             # このウィンドウにグラブ（他へイベントを渡さない）
+        win.focus_force()          # フォーカスを強制
+        # ▲▲ これにより Treeview が矢印キー等を受けず、勝手に選択が変わらない ▲▲
 
         rootf = tk.Frame(win)
         rootf.pack(fill="both", expand=True)
@@ -284,6 +296,11 @@ class App:
     def close_detail_if_exists(self):
         try:
             if self.detail_win is not None and self.detail_win.winfo_exists():
+                # grab を解除してから閉じる（モーダル解除）
+                try:
+                    self.detail_win.grab_release()
+                except Exception:
+                    pass
                 self.detail_win.destroy()
         except Exception:
             pass
@@ -293,7 +310,7 @@ class App:
         self.prev_btn = None
         self.next_btn = None
 
-    # ==== ナビ ====
+    # ==== ナビ（ラベル更新のみ） ====
     def nav_detail(self, delta: int):
         if self.detail_abs_index is None or self.df_hits is None:
             return
@@ -310,7 +327,8 @@ class App:
         if "タイトル" in self.detail_labels:
             self.detail_labels["タイトル"].config(text=row.get("タイトル",""))
         for c, lbl in self.detail_labels.items():
-            if c == "タイトル": continue
+            if c == "タイトル":
+                continue
             if c in row.index:
                 lbl.config(text=str(row[c]))
 
