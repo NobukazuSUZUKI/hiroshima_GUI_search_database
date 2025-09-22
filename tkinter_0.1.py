@@ -33,6 +33,44 @@ DETAIL_MARGIN_TOP = 40
 DETAIL_MARGIN_BOTTOM = 80
 DETAIL_MARGIN_RIGHT = 40  # 右余白
 
+# --- ひろしま表記ゆれ & 関連語対応 ---
+HIROSHIMA_BASE_TERMS = [
+    "広島","ヒロシマ","ひろしま","廣島","ﾋﾛｼﾏ","hiroshima","HIROSHIMA"
+]
+HIROSHIMA_RELATED_TERMS = [
+    # 地名・施設
+    "平和記念公園","平和公園","原爆ドーム","原爆資料館","宮島","厳島","嚴島","厳島神社",
+    "呉","呉市","江田島","似島","福山","尾道","三次","東広島","安芸","安芸郡","可部","己斐",
+    "紙屋町","八丁堀","広電","路面電車",
+    # 野球・文化
+    "カープ","広島東洋カープ",
+    # 用語
+    "原爆","被爆","被曝","原子爆弾","核兵器",
+]
+
+def _to_hiragana(s: str) -> str:
+    # カタカナ → ひらがな変換（Unicode範囲変換）
+    res = []
+    for ch in s:
+        codepoint = ord(ch)
+        if 0x30A1 <= codepoint <= 0x30F6:  # Katakana small a ... ke
+            res.append(chr(codepoint - 0x60))
+        else:
+            res.append(ch)
+    return "".join(res)
+
+def normalize_text(text: str) -> str:
+    # 全角/半角正規化 → 小文字 → ひらがな化
+    t = unicodedata.normalize("NFKC", str(text or ""))
+    t = t.lower()
+    t = _to_hiragana(t)
+    return t
+
+# 正規化済みキーワード集合（正規化しておく）
+_HIRO_WORDS = [normalize_text(w) for w in (HIROSHIMA_BASE_TERMS + HIROSHIMA_RELATED_TERMS)]
+# すべての語を OR でマッチさせる正規表現
+HIROSHIMA_PATTERN = "(" + "|".join(map(re.escape, _HIRO_WORDS)) + ")"
+
 # 表記ゆれ吸収用（広島）— 3.1.py と同等ヒットになるよう網羅
 HIROSHIMA_VARIANTS = ["広島", "ヒロシマ", "ひろしま", "廣島", "ﾋﾛｼﾏ", "hiroshima", "HIROSHIMA"]
 HIROSHIMA_REGEX = "(" + "|".join(map(re.escape, HIROSHIMA_VARIANTS)) + ")"
@@ -117,18 +155,13 @@ def load_dataset(path: Path):
     df = pd.read_excel(path, sheet_name=SHEET_NAME)
     for c in df.columns:
         df[c] = df[c].astype(str).fillna("")
-    pref_cols = [c for c in [
-        "タイトル","作曲者","演奏者","演奏者（追加）","内容","内容（追加）",
-        "ジャンル","メディア","登録番号","レコード番号","レーベル",
-        "タイトル(カタカナ)","演奏者(カタカナ)"
-    ] if c in df.columns]
-    if not pref_cols:
-        pref_cols = list(df.columns)
-    df["__全文__"] = df[pref_cols].agg("　".join, axis=1)
+    pref_cols = list(df.columns)
+    df["__全文__"] = df[list(df.columns)].agg("　".join, axis=1)
     # 表示カラム固定
     main_cols = [c for c in ["登録番号","メディア","タイトル","演奏者","作曲者","ジャンル"] if c in df.columns]
     if not main_cols:
         main_cols = list(df.columns)[:6]
+    df["__norm__"] = df["__全文__"].apply(normalize_text)
     return df, main_cols
 
 def load_names(path: Path):
@@ -547,27 +580,33 @@ class App:
 
     # ==== 広島検索（多表記 + 地名/人名も全文一致で拾う） ====
     def search_hiroshima(self):
-        """『広島』表記ゆれをすべて拾う検索。3.1.py と同等件数を想定。"""
-        if "__全文__" not in self.df_all.columns:
-            messagebox.showwarning("警告", "Excel に『全文』データが見つかりません。")
+        """
+        『広島/ひろしま/ﾋﾛｼﾏ/ヒロシマ/廣島/hiroshima』に加え、
+        広島に関連する地名・施設・用語（平和記念公園、原爆ドーム、宮島、呉、カープ 等）を
+        正規化(__norm__)に対して部分一致で検索します。
+        """
+        if "__norm__" not in self.df_all.columns:
+            messagebox.showerror("エラー", "検索対象列『__norm__』が見つかりません。Excelの読み込み処理をご確認ください。")
+            return
+        if not HIROSHIMA_PATTERN:
+            messagebox.showerror("エラー", "広島関連キーワードのパターンが生成できていません。")
             return
 
-        # 正規表現で表記ゆれを網羅（大文字小文字無視）
         try:
-            mask = self.df_all["__全文__"].str.contains(HIROSHIMA_REGEX, case=False, na=False, regex=True)
+            mask = self.df_all["__norm__"].str.contains(HIROSHIMA_PATTERN, na=False, regex=True)
         except Exception:
-            # 念のためフォールバック（バージョン差対策）
-            def _contains_any(text: str) -> bool:
-                t = str(text or "")
-                tl = t.lower()
-                return any(v.lower() in tl for v in HIROSHIMA_VARIANTS)
-            mask = self.df_all["__全文__"].apply(_contains_any)
+            # 念のためフォールバック（正規化+部分一致）
+            words = [normalize_text(w) for w in (HIROSHIMA_BASE_TERMS + HIROSHIMA_RELATED_TERMS)]
+            def _contains_any(t: str) -> bool:
+                s = normalize_text(t)
+                return any(w in s for w in words)
+            mask = self.df_all["__norm__"].apply(_contains_any)
 
         self.df_hits = self.df_all[mask].copy()
         self.page = 1
         self.update_table()
         self.close_detail_if_exists()
-        self.label_count.config(text=f"広島関係 件数 {len(self.df_hits)}")
+        self.label_count.config(text=f"広島関係検索: 件数 {len(self.df_hits)}")
 
         # 検索欄に「広島」を残す
         self.entry.delete(0, tk.END)
