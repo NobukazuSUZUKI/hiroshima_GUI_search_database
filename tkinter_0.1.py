@@ -93,12 +93,14 @@ class App:
         search_frame = tk.Frame(self.root)
         search_frame.pack(pady=(20, 10))
         tk.Label(search_frame, text="キーワード検索", font=FONT_LARGE).pack(anchor="center")
+
         entry_row = tk.Frame(search_frame)
         entry_row.pack(pady=10)
+
         self.entry = tk.Entry(entry_row, width=40, font=FONT_LARGE)
         self.entry.pack(side="left", padx=(0,12), ipady=12)
-        tk.Button(entry_row, text="検索", font=FONT_LARGE, command=self.do_search)\
-            .pack(side="left")
+
+        # 検索ボタン削除 → Enterキーでのみ検索
         self.entry.bind("<Return>", lambda e: self.do_search())
 
         # ==== ボタン群（左寄せ） ====
