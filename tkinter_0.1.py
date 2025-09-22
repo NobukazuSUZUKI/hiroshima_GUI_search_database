@@ -442,6 +442,8 @@ class App:
             if not sel:
                 return
             nm = lst.get(sel[0])  # Excel表記をそのまま使う
+            self.entry.delete(0, tk.END)
+            self.entry.insert(0, nm)
             mask = self.df_all["__全文__"].str.contains(re.escape(nm), case=False, na=False)
             self.df_hits = self.df_all[mask].copy()
             self.page = 1
