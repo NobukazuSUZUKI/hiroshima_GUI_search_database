@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 import pandas as pd
@@ -21,12 +22,12 @@ FONT_LARGE = ("Meiryo", 20)
 FONT_MED   = ("Meiryo", 14)
 FONT_BTN   = ("Meiryo", 16)
 
-DETAIL_WRAP = 560       # 詳細欄のラップ幅(px)
-DETAIL_WIDTH_PCT = 0.40 # 詳細ウィンドウ幅（メインウィンドウに対する比率）
-DETAIL_HEIGHT_PCT = 0.86# 詳細ウィンドウ高さ比率
-DETAIL_TOP_MARGIN = 90  # メインウィンドウ上端からのマージン(px)
-FADE_IN_MS = 200        # フェードイン総時間（ミリ秒）
-FADE_STEP_MS = 15       # アニメの間隔（ミリ秒）
+DETAIL_WRAP = 560        # 詳細欄のラップ幅(px)
+DETAIL_WIDTH_PCT = 0.50  # 詳細ウィンドウ幅（メインウィンドウに対する比率＝右側いっぱいの“半分”）
+DETAIL_HEIGHT_PCT = 0.92 # 詳細ウィンドウ高さ比率
+DETAIL_TOP_MARGIN = 20   # メインウィンドウ上端からのマージン(px)
+FADE_IN_MS = 80          # フェードイン総時間（ミリ秒）←短くして目が疲れない程度
+FADE_STEP_MS = 10        # アニメの間隔（ミリ秒）
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -55,32 +56,32 @@ def keyword_mask(df, q: str):
         mask = mask & df["__全文__"].str.contains(p, case=False, na=False)
     return mask
 
-# ========= 詳細表示（右側・スクロール・フェードイン） =========
+# ========= 詳細表示（右側・スクロール・高速フェードイン） =========
 def show_detail_right_fade(row: pd.Series, parent: tk.Tk):
-    # --- 位置とサイズを計算（親ウィンドウの右側） ---
+    # --- 親ウィンドウのジオメトリから位置とサイズを算出 ---
     parent.update_idletasks()
     px = parent.winfo_rootx()
     py = parent.winfo_rooty()
     pw = parent.winfo_width()
     ph = parent.winfo_height()
 
-    win_w = int(pw * DETAIL_WIDTH_PCT)
-    win_h = int(ph * DETAIL_HEIGHT_PCT)
-    # 右側に配置（左右のマージンを少し確保）
-    x = px + pw - win_w - 30
+    win_w = max(480, int(pw * DETAIL_WIDTH_PCT))
+    win_h = max(300, int(ph * DETAIL_HEIGHT_PCT))
+    # 右側いっぱい（右半分）：左上を右端側に寄せる
+    x = px + pw - win_w
     y = py + DETAIL_TOP_MARGIN
 
-    # --- Toplevel 作成（最初は透明にしてからフェードイン） ---
+    # --- Toplevel（最初は透明→フェードイン） ---
     win = tk.Toplevel(parent)
     win.title("詳細表示")
     win.geometry(f"{win_w}x{win_h}+{x}+{y}")
-    win.resizable(True, True)  # 縦スクロールはあるが、調整もできるように
+    win.resizable(True, True)
     try:
-        win.attributes("-alpha", 0.0)  # 透明から開始
+        win.attributes("-alpha", 0.0)
     except Exception:
-        pass  # 一部環境で未対応でも無視（その場合は即表示）
+        pass
 
-    # --- スクロール可能なキャンバス＋フレーム ---
+    # --- スクロール可能領域（Canvas + 内部Frame） ---
     container = tk.Frame(win)
     container.pack(fill="both", expand=True)
 
@@ -90,72 +91,77 @@ def show_detail_right_fade(row: pd.Series, parent: tk.Tk):
     canvas.pack(side="left", fill="both", expand=True)
     vbar.pack(side="right", fill="y")
 
-    # Canvas内に実体フレームを作る
     inner = tk.Frame(canvas)
     inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
 
-    # サイズに応じてスクロール領域を更新
     def _on_configure(event=None):
         canvas.configure(scrollregion=canvas.bbox("all"))
-        # 幅を追従
         canvas.itemconfigure(inner_id, width=canvas.winfo_width())
     inner.bind("<Configure>", _on_configure)
 
-    # マウスホイールでスクロール（Windows/Linux）
-    def _on_mousewheel(event):
-        canvas.yview_scroll(-int(event.delta/120), "units")
-    canvas.bind_all("<MouseWheel>", _on_mousewheel)
-    # macOS の場合
-    def _on_mousewheel_osx(event):
-        canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
-    canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
-    canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
+    # --- マウスホイール／トラックパッド対応（Win/Linux/macOS） ---
+    def _on_mousewheel_windows(event):
+        # Windows: event.delta は ±120 の倍数
+        canvas.yview_scroll(-int(event.delta / 120), "units")
 
-    # --- 中身を作る（主要項目→全フィールド） ---
+    def _on_mousewheel_darwin(event):
+        # macOS: 小さい ±値（トラックパッド）、なめらかスクロール
+        direction = -1 if event.delta > 0 else 1
+        canvas.yview_scroll(direction, "units")
+
+    def _on_mousewheel_linux_up(event):
+        canvas.yview_scroll(-1, "units")
+
+    def _on_mousewheel_linux_down(event):
+        canvas.yview_scroll(1, "units")
+
+    if sys.platform.startswith("win"):
+        canvas.bind("<MouseWheel>", _on_mousewheel_windows)
+        inner.bind("<MouseWheel>", _on_mousewheel_windows)
+    elif sys.platform == "darwin":
+        canvas.bind("<MouseWheel>", _on_mousewheel_darwin)
+        inner.bind("<MouseWheel>", _on_mousewheel_darwin)
+    else:
+        # X11 (Linux)
+        canvas.bind("<Button-4>", _on_mousewheel_linux_up)
+        canvas.bind("<Button-5>", _on_mousewheel_linux_down)
+        inner.bind("<Button-4>", _on_mousewheel_linux_up)
+        inner.bind("<Button-5>", _on_mousewheel_linux_down)
+
+    # --- 中身（主要項目のみ、全フィールドは出さない） ---
     title_txt = row.get("タイトル", "") if "タイトル" in row.index else ""
-    header = tk.Label(inner, text=title_txt, font=("Meiryo", 20, "bold"), anchor="w", wraplength=DETAIL_WRAP, justify="left")
+    header = tk.Label(inner, text=title_txt, font=("Meiryo", 20, "bold"),
+                      anchor="w", wraplength=DETAIL_WRAP, justify="left")
     header.pack(fill="x", padx=14, pady=(10, 6))
 
-    sub_fields = [c for c in ["作曲者","演奏者","演奏者（追加）","ジャンル","メディア","登録番号","レコード番号","レーベル"] if c in row.index]
+    sub_fields = [c for c in ["作曲者","演奏者","演奏者（追加）","ジャンル","メディア",
+                              "登録番号","レコード番号","レーベル","内容","内容（追加）"]
+                  if c in row.index]
     for c in sub_fields:
         cap = tk.Label(inner, text=c, font=FONT_MED, anchor="w", fg="#555")
-        cap.pack(fill="x", padx=14, pady=(6, 0))
-        val = tk.Label(inner, text=str(row[c]), font=FONT_MED, anchor="w", wraplength=DETAIL_WRAP, justify="left")
+        cap.pack(fill="x", padx=14, pady=(8, 0))
+        val = tk.Label(inner, text=str(row[c]), font=FONT_MED, anchor="w",
+                       wraplength=DETAIL_WRAP, justify="left")
         val.pack(fill="x", padx=14)
 
-    # 内容系は少し広めの余白で
-    for c in [col for col in ["内容","内容（追加）"] if col in row.index]:
-        cap = tk.Label(inner, text=c, font=FONT_MED, anchor="w", fg="#555")
-        cap.pack(fill="x", padx=14, pady=(10, 0))
-        val = tk.Label(inner, text=str(row[c]), font=FONT_MED, anchor="w", wraplength=DETAIL_WRAP, justify="left")
-        val.pack(fill="x", padx=14)
+    # 末尾に少し余白
+    tk.Frame(inner, height=10).pack()
 
-    # 仕切り線
-    ttk.Separator(inner, orient="horizontal").pack(fill="x", padx=12, pady=10)
-
-    # 全フィールド展開（デバッグ/確認用）
-    all_lbl = tk.Label(inner, text="全フィールド", font=FONT_MED, anchor="w")
-    all_lbl.pack(fill="x", padx=14)
-    all_text = "\n".join([f"{c}: {row[c]}" for c in row.index])
-    all_box = tk.Label(inner, text=all_text, font=FONT_MED, anchor="w", justify="left", wraplength=DETAIL_WRAP)
-    all_box.pack(fill="x", padx=14, pady=(0, 10))
-
-    # --- フェードイン（目に優しい） ---
+    # --- フェードイン（80ms でスッと） ---
     try:
         steps = max(1, FADE_IN_MS // FADE_STEP_MS)
         def _fade(step=0):
-            a = min(1.0, (step+1) / steps)
+            a = min(1.0, (step + 1) / steps)
             try:
                 win.attributes("-alpha", a)
             except Exception:
                 pass
-            if step+1 < steps:
-                win.after(FADE_STEP_MS, _fade, step+1)
+            if step + 1 < steps:
+                win.after(FADE_STEP_MS, _fade, step + 1)
         _fade(0)
     except Exception:
         pass
 
-    # フォーカスは親側のままでOK（閲覧用パネル風）
     return win
 
 # ========= メインアプリ =========
@@ -165,9 +171,8 @@ class App:
         self.root.title("Audio Search — tkinter")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        # 起動時フルスクリーン相当
+        # 起動時フルスクリーン相当（ただしリサイズ可）
         self.root.geometry(f"{sw}x{sh}+0+0")
-        # 調整できるようにリサイズ可能
         self.root.resizable(True, True)
 
         # ==== ヘッダー ====
@@ -254,9 +259,7 @@ class App:
 
         self.df_hits = None
         self.page = 1
-
-        # 詳細ウィンドウの参照（複数開いたら古い方を閉じるため）
-        self.detail_win = None
+        self.detail_win = None  # 右側詳細を一枚に保つ
 
     # ==== 検索処理 ====
     def do_search(self):
@@ -299,14 +302,13 @@ class App:
         if self.df_hits is None or self.df_hits.empty:
             return
         sel = self.tree.selection()
-        if not sel:
-            return
+        if not sel: return
         item_id = sel[0]
         idx_in_page = self.tree.index(item_id)
         start = (self.page - 1) * PAGE_SIZE
         row = self.df_hits.iloc[start + idx_in_page]
 
-        # 既存の詳細ウィンドウがあれば閉じてから開く（右側に常に1枚）
+        # 既存の詳細があれば閉じる（常に右側に1枚だけ）
         try:
             if self.detail_win is not None and self.detail_win.winfo_exists():
                 self.detail_win.destroy()
