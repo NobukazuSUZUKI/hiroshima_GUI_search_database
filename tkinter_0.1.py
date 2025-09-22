@@ -125,7 +125,9 @@ class App:
                         background="white",
                         fieldbackground="white")
         style.configure("Treeview.Heading", font=FONT_MED)
-        style.map("Treeview", background=[("selected", "#d0e0ff")])
+        style.map("Treeview",
+                  background=[("selected", "#d0e0ff")],
+                  foreground=[("selected", "black")])  # ← 追加！
 
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -137,6 +139,7 @@ class App:
         # 交互色タグ（しましま）
         self.tree.tag_configure("odd", background="#f2f2f2")
         self.tree.tag_configure("even", background="white")
+
 
         # 列リサイズを完全ブロック
         self.tree.bind("<Button-1>", self._block_resize)
