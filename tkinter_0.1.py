@@ -7,14 +7,21 @@ import pandas as pd
 import re
 from pathlib import Path
 
-SHEET_NAME = "Sheet"   # ← 修正ポイント
-PAGE_SIZE = 20
+# ===== 設定 =====
+SHEET_NAME = "Sheet"
+PAGE_SIZE  = 20
+FONT_LARGE = ("Meiryo", 20)
+FONT_MED   = ("Meiryo", 14)
+FONT_BTN   = ("Meiryo", 16)
+# KIOSK_LOCKED=True にすると ×/Alt+F4 を無効化（任意）
+KIOSK_LOCKED = False
 
-# --- データ読み込み ---
+# ===== データ読み込み・検索 =====
 def load_dataset(path: Path):
     df = pd.read_excel(path, sheet_name=SHEET_NAME)
     for c in df.columns:
         df[c] = df[c].astype(str).fillna("")
+    # 検索対象列
     pref_cols = [c for c in [
         "タイトル","作曲者","演奏者","演奏者（追加）","内容","内容（追加）",
         "ジャンル","メディア","登録番号","レコード番号","レーベル",
@@ -23,10 +30,12 @@ def load_dataset(path: Path):
     if not pref_cols:
         pref_cols = list(df.columns)
     df["__全文__"] = df[pref_cols].agg("　".join, axis=1)
+    # 一覧に見せる主要列
     main_cols = [c for c in ["No.","登録番号","タイトル","作曲者","演奏者","ジャンル","メディア"] if c in df.columns]
+    if not main_cols:
+        main_cols = list(df.columns)[:7]
     return df, main_cols
 
-# --- キーワード検索 ---
 def keyword_mask(df, q: str):
     if not q.strip():
         return pd.Series([True]*len(df), index=df.index)
@@ -36,109 +45,176 @@ def keyword_mask(df, q: str):
         mask = mask & df["__全文__"].str.contains(p, case=False, na=False)
     return mask
 
-# --- 詳細表示 ---
-def show_detail(row: pd.Series):
-    detail_win = tk.Toplevel()
-    detail_win.title("詳細表示")
-    text = tk.Text(detail_win, wrap="word", width=100, height=30)
-    text.pack(fill="both", expand=True)
-    for c, v in row.items():
-        text.insert("end", f"{c}: {v}\n")
-    text.config(state="disabled")
+# ===== 詳細表示 =====
+def show_detail(row: pd.Series, parent):
+    win = tk.Toplevel(parent)
+    win.title("詳細表示")
+    win.attributes("-topmost", True)
+    # 閉じる禁止（任意）
+    if KIOSK_LOCKED:
+        win.protocol("WM_DELETE_WINDOW", lambda: None)
 
-# --- 検索実行 ---
-def do_search():
-    global df_all, df_hits, page
-    q = entry.get()
-    mask = keyword_mask(df_all, q)
-    df_hits = df_all[mask].copy()
-    page = 1
-    update_table()
+    frm = tk.Frame(win)
+    frm.pack(fill="both", expand=True, padx=10, pady=10)
+    # 主要項目
+    fields = [c for c in ["No.","メディア","登録番号","タイトル","作曲者","演奏者","演奏者（追加）",
+                          "ジャンル","内容","内容（追加）","レコード番号","レーベル","サイズ","枚数"] if c in row.index]
+    for c in fields:
+        tk.Label(frm, text=c, font=FONT_MED, anchor="w").pack(fill="x")
+        txt = tk.Text(frm, height=2, wrap="word")
+        txt.insert("1.0", str(row.get(c, "")))
+        txt.config(state="disabled")
+        txt.pack(fill="x", pady=(0,6))
+    # 全フィールド
+    tk.Label(frm, text="全フィールド", font=FONT_MED, anchor="w").pack(fill="x", pady=(8,0))
+    all_text = "\n".join([f"{c}: {row[c]}" for c in row.index])
+    txt_all = tk.Text(frm, height=12, wrap="word")
+    txt_all.insert("1.0", all_text)
+    txt_all.config(state="disabled")
+    txt_all.pack(fill="both", expand=True)
 
-# --- 表の更新（ページング対応） ---
-def update_table():
-    for row in tree.get_children():
-        tree.delete(row)
-    if df_hits is None or df_hits.empty:
-        label_count.config(text="ヒット件数: 0")
-        return
-    total = len(df_hits)
-    start = (page-1)*PAGE_SIZE
-    end = min(start+PAGE_SIZE, total)
-    view = df_hits.iloc[start:end]
-    for _, r in view.iterrows():
-        tree.insert("", "end", values=[r.get(c,"") for c in main_cols])
-    label_count.config(text=f"ヒット件数: {total}  ページ {page}/{(total+PAGE_SIZE-1)//PAGE_SIZE}")
+    btn = tk.Button(frm, text="閉じる", font=FONT_MED, command=win.destroy)
+    btn.pack(pady=8)
 
-def on_row_double_click(event):
-    item = tree.selection()
-    if not item:
-        return
-    idx = tree.index(item)
-    start = (page-1)*PAGE_SIZE
-    row = df_hits.iloc[start+idx]
-    show_detail(row)
+# ===== メインアプリ =====
+class App:
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        self.root.title("Audio Search — tkinter")
+        # フルスクリーン＆サイズ変更不可
+        self.root.attributes("-fullscreen", True)
+        self.root.resizable(False, False)
+        if KIOSK_LOCKED:
+            self.root.protocol("WM_DELETE_WINDOW", lambda: None)
+        # ESCでフルスクリーン解除させない
+        self.root.bind("<Escape>", lambda e: None)
 
-def prev_page():
-    global page
-    if page > 1:
-        page -= 1
-        update_table()
+        # 画面を大きく使えるように grid を伸縮設定
+        for i in range(3):
+            self.root.rowconfigure(i, weight=0)
+        self.root.rowconfigure(3, weight=1)  # テーブル部が伸縮
+        self.root.columnconfigure(0, weight=1)
 
-def next_page():
-    global page
-    maxp = (len(df_hits)+PAGE_SIZE-1)//PAGE_SIZE
-    if page < maxp:
-        page += 1
-        update_table()
+        # === 上段：中央上部に大きなキーワード検索 ===
+        top = tk.Frame(self.root)
+        top.grid(row=0, column=0, sticky="n", pady=(30, 10))
+        # 中央配置のために内部で pack を center 使用
+        lbl = tk.Label(top, text="キーワード検索", font=FONT_LARGE)
+        lbl.pack(anchor="center")
+        entry_row = tk.Frame(top)
+        entry_row.pack(pady=10)
+        self.entry = tk.Entry(entry_row, width=50, font=FONT_LARGE)
+        self.entry.pack(side="left", padx=(0,12))
+        btn_search = tk.Button(entry_row, text="検索", font=FONT_LARGE, command=self.do_search)
+        btn_search.pack(side="left")
+        self.entry.bind("<Return>", lambda e: self.do_search())
 
-# --- メインウィンドウ ---
-root = tk.Tk()
-root.title("Audio Search — tkinter版")
+        # === その下：左寄せの大きめボタン三つ ===
+        btns = tk.Frame(self.root)
+        btns.grid(row=1, column=0, sticky="w", padx=30, pady=(10, 10))
+        tk.Button(btns, text="人名検索", font=FONT_BTN, width=12, command=self.search_people).pack(side="left", padx=(0,10))
+        tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=12, command=self.search_genre).pack(side="left", padx=(0,10))
+        tk.Button(btns, text="詳細検索", font=FONT_BTN, width=12, command=self.search_advanced).pack(side="left")
 
-frame_top = tk.Frame(root)
-frame_top.pack(padx=10, pady=5, fill="x")
+        # === 件数表示 ===
+        info = tk.Frame(self.root)
+        info.grid(row=2, column=0, sticky="w", padx=30)
+        self.label_count = tk.Label(info, text="ヒット件数: 0", font=FONT_MED)
+        self.label_count.pack(side="left")
 
-tk.Label(frame_top, text="キーワード:").pack(side="left")
-entry = tk.Entry(frame_top, width=50)
-entry.pack(side="left", padx=5)
-btn = tk.Button(frame_top, text="検索", command=do_search)
-btn.pack(side="left")
+        # === 下段：結果テーブル（Treeview） ===
+        table_area = tk.Frame(self.root)
+        table_area.grid(row=3, column=0, sticky="nsew", padx=20, pady=10)
+        self.tree = ttk.Treeview(table_area, show="headings")
+        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.bind("<Double-1>", self.on_row_double_click)
+        scroll = ttk.Scrollbar(table_area, orient="vertical", command=self.tree.yview)
+        scroll.pack(side="right", fill="y")
+        self.tree.configure(yscroll=scroll.set)
 
-label_count = tk.Label(root, text="ヒット件数: 0")
-label_count.pack(padx=10, anchor="w")
+        # === ページ操作 ===
+        nav = tk.Frame(self.root)
+        nav.grid(row=4, column=0, pady=(0, 15))
+        tk.Button(nav, text="前のページ", font=FONT_MED, command=self.prev_page).pack(side="left", padx=8)
+        tk.Button(nav, text="次のページ", font=FONT_MED, command=self.next_page).pack(side="left", padx=8)
 
-# 表
-frame_table = tk.Frame(root)
-frame_table.pack(fill="both", expand=True)
+        # データ読み込み
+        excel_path = Path(__file__).resolve().parent / "all_data.xlsx"
+        try:
+            self.df_all, self.main_cols = load_dataset(excel_path)
+        except Exception as e:
+            messagebox.showerror("エラー", f"Excel 読み込み失敗: {e}")
+            self.root.destroy()
+            return
 
-tree = ttk.Treeview(frame_table, columns=("c1","c2","c3","c4","c5","c6","c7"), show="headings")
-tree.pack(side="left", fill="both", expand=True)
-tree.bind("<Double-1>", on_row_double_click)
+        # テーブル見出し設定
+        cols_ids = [f"c{i+1}" for i in range(len(self.main_cols))]
+        self.tree.configure(columns=cols_ids)
+        for i, c in enumerate(self.main_cols):
+            self.tree.heading(cols_ids[i], text=c)
+            self.tree.column(cols_ids[i], width=200, anchor="w")
 
-scroll = ttk.Scrollbar(frame_table, orient="vertical", command=tree.yview)
-scroll.pack(side="right", fill="y")
-tree.configure(yscroll=scroll.set)
+        self.df_hits = None
+        self.page = 1
 
-# ページ操作
-frame_nav = tk.Frame(root)
-frame_nav.pack(pady=5)
-btn_prev = tk.Button(frame_nav, text="前のページ", command=prev_page)
-btn_prev.pack(side="left", padx=5)
-btn_next = tk.Button(frame_nav, text="次のページ", command=next_page)
-btn_next.pack(side="left", padx=5)
+    # ---- 検索処理 ----
+    def do_search(self):
+        q = self.entry.get()
+        mask = keyword_mask(self.df_all, q)
+        self.df_hits = self.df_all[mask].copy()
+        self.page = 1
+        self.update_table()
 
-# Excel読み込み
-excel_path = Path(__file__).resolve().parent / "all_data.xlsx"
-try:
-    df_all, main_cols = load_dataset(excel_path)
-    df_hits = None
-    page = 1
-    for i, c in enumerate(main_cols):
-        tree.heading(f"c{i+1}", text=c)
-        tree.column(f"c{i+1}", width=120, anchor="w")
-except Exception as e:
-    messagebox.showerror("エラー", f"Excel 読み込み失敗: {e}")
-    root.destroy()
+    def update_table(self):
+        for r in self.tree.get_children():
+            self.tree.delete(r)
+        if self.df_hits is None or self.df_hits.empty:
+            self.label_count.config(text="ヒット件数: 0")
+            return
+        total = len(self.df_hits)
+        start = (self.page - 1) * PAGE_SIZE
+        end   = min(start + PAGE_SIZE, total)
+        view = self.df_hits.iloc[start:end]
+        for _, row in view.iterrows():
+            self.tree.insert("", "end", values=[row.get(c, "") for c in self.main_cols])
+        pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+        self.label_count.config(text=f"ヒット件数: {total}   ページ {self.page}/{pages}")
 
-root.mainloop()
+    def on_row_double_click(self, event):
+        if not self.df_hits is None and not self.df_hits.empty:
+            idx_in_page = self.tree.index(self.tree.selection())
+            start = (self.page - 1) * PAGE_SIZE
+            row = self.df_hits.iloc[start + idx_in_page]
+            show_detail(row, self.root)
+
+    def prev_page(self):
+        if self.df_hits is None: return
+        if self.page > 1:
+            self.page -= 1
+            self.update_table()
+
+    def next_page(self):
+        if self.df_hits is None: return
+        maxp = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
+        if self.page < maxp:
+            self.page += 1
+            self.update_table()
+
+    # ---- プレースホルダ（後で実装）----
+    def search_people(self):
+        messagebox.showinfo("人名検索", "今はキーワード検索のみ。人名検索は後で実装します。")
+
+    def search_genre(self):
+        messagebox.showinfo("ジャンル検索", "今はキーワード検索のみ。ジャンル検索は後で実装します。")
+
+    def search_advanced(self):
+        messagebox.showinfo("詳細検索", "今はキーワード検索のみ。詳細検索は後で実装します。")
+
+
+def main():
+    root = tk.Tk()
+    App(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
