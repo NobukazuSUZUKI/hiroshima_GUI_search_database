@@ -22,12 +22,11 @@ FONT_LARGE = ("Meiryo", 20)
 FONT_MED   = ("Meiryo", 14)
 FONT_BTN   = ("Meiryo", 16)
 
-DETAIL_WRAP = 560        # 詳細欄のラップ幅(px)
-DETAIL_WIDTH_PCT = 0.50  # 詳細ウィンドウ幅（メインウィンドウに対する比率＝右側いっぱいの“半分”）
-DETAIL_HEIGHT_PCT = 0.92 # 詳細ウィンドウ高さ比率
-DETAIL_TOP_MARGIN = 20   # メインウィンドウ上端からのマージン(px)
-FADE_IN_MS = 80          # フェードイン総時間（ミリ秒）←短くして目が疲れない程度
-FADE_STEP_MS = 10        # アニメの間隔（ミリ秒）
+DETAIL_WIDTH_PCT = 0.50   # 右側“全体”＝画面の右半分
+DETAIL_TOP_MARGIN = 0     # 上マージン
+DETAIL_HEIGHT_PCT = 1.00  # 高さは親ウィンドウいっぱい
+FADE_IN_MS = 40           # ご指定のフェード速度（ミリ秒）
+FADE_STEP_MS = 10         # フェード刻み（ミリ秒）
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -56,98 +55,53 @@ def keyword_mask(df, q: str):
         mask = mask & df["__全文__"].str.contains(p, case=False, na=False)
     return mask
 
-# ========= 詳細表示（右側・スクロール・高速フェードイン） =========
+# ========= 詳細表示（右側いっぱい・スクロール無し・高速フェード） =========
 def show_detail_right_fade(row: pd.Series, parent: tk.Tk):
-    # --- 親ウィンドウのジオメトリから位置とサイズを算出 ---
     parent.update_idletasks()
     px = parent.winfo_rootx()
     py = parent.winfo_rooty()
     pw = parent.winfo_width()
     ph = parent.winfo_height()
 
-    win_w = max(480, int(pw * DETAIL_WIDTH_PCT))
-    win_h = max(300, int(ph * DETAIL_HEIGHT_PCT))
-    # 右側いっぱい（右半分）：左上を右端側に寄せる
-    x = px + pw - win_w
+    win_w = max(480, int(pw * DETAIL_WIDTH_PCT))       # 右半分
+    win_h = max(300, int(ph * DETAIL_HEIGHT_PCT))      # 親の高さに合わせる
+    x = px + pw - win_w                                # 右端に揃える
     y = py + DETAIL_TOP_MARGIN
 
-    # --- Toplevel（最初は透明→フェードイン） ---
     win = tk.Toplevel(parent)
     win.title("詳細表示")
     win.geometry(f"{win_w}x{win_h}+{x}+{y}")
     win.resizable(True, True)
     try:
-        win.attributes("-alpha", 0.0)
+        win.attributes("-alpha", 0.0)  # 透明から
     except Exception:
         pass
 
-    # --- スクロール可能領域（Canvas + 内部Frame） ---
-    container = tk.Frame(win)
-    container.pack(fill="both", expand=True)
+    # ---- 中身（スクロール無しなのでシンプルなFrame + Label）----
+    pad = 16
+    wrap = win_w - pad*2  # テキストの折返し幅をウィンドウ幅に合わせる
 
-    canvas = tk.Canvas(container, highlightthickness=0)
-    vbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-    canvas.configure(yscrollcommand=vbar.set)
-    canvas.pack(side="left", fill="both", expand=True)
-    vbar.pack(side="right", fill="y")
+    frm = tk.Frame(win)
+    frm.pack(fill="both", expand=True)
 
-    inner = tk.Frame(canvas)
-    inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-
-    def _on_configure(event=None):
-        canvas.configure(scrollregion=canvas.bbox("all"))
-        canvas.itemconfigure(inner_id, width=canvas.winfo_width())
-    inner.bind("<Configure>", _on_configure)
-
-    # --- マウスホイール／トラックパッド対応（Win/Linux/macOS） ---
-    def _on_mousewheel_windows(event):
-        # Windows: event.delta は ±120 の倍数
-        canvas.yview_scroll(-int(event.delta / 120), "units")
-
-    def _on_mousewheel_darwin(event):
-        # macOS: 小さい ±値（トラックパッド）、なめらかスクロール
-        direction = -1 if event.delta > 0 else 1
-        canvas.yview_scroll(direction, "units")
-
-    def _on_mousewheel_linux_up(event):
-        canvas.yview_scroll(-1, "units")
-
-    def _on_mousewheel_linux_down(event):
-        canvas.yview_scroll(1, "units")
-
-    if sys.platform.startswith("win"):
-        canvas.bind("<MouseWheel>", _on_mousewheel_windows)
-        inner.bind("<MouseWheel>", _on_mousewheel_windows)
-    elif sys.platform == "darwin":
-        canvas.bind("<MouseWheel>", _on_mousewheel_darwin)
-        inner.bind("<MouseWheel>", _on_mousewheel_darwin)
-    else:
-        # X11 (Linux)
-        canvas.bind("<Button-4>", _on_mousewheel_linux_up)
-        canvas.bind("<Button-5>", _on_mousewheel_linux_down)
-        inner.bind("<Button-4>", _on_mousewheel_linux_up)
-        inner.bind("<Button-5>", _on_mousewheel_linux_down)
-
-    # --- 中身（主要項目のみ、全フィールドは出さない） ---
     title_txt = row.get("タイトル", "") if "タイトル" in row.index else ""
-    header = tk.Label(inner, text=title_txt, font=("Meiryo", 20, "bold"),
-                      anchor="w", wraplength=DETAIL_WRAP, justify="left")
-    header.pack(fill="x", padx=14, pady=(10, 6))
+    tk.Label(frm, text=title_txt, font=("Meiryo", 20, "bold"),
+             anchor="w", justify="left", wraplength=wrap).pack(fill="x", padx=pad, pady=(pad, 8))
 
-    sub_fields = [c for c in ["作曲者","演奏者","演奏者（追加）","ジャンル","メディア",
-                              "登録番号","レコード番号","レーベル","内容","内容（追加）"]
-                  if c in row.index]
-    for c in sub_fields:
-        cap = tk.Label(inner, text=c, font=FONT_MED, anchor="w", fg="#555")
-        cap.pack(fill="x", padx=14, pady=(8, 0))
-        val = tk.Label(inner, text=str(row[c]), font=FONT_MED, anchor="w",
-                       wraplength=DETAIL_WRAP, justify="left")
-        val.pack(fill="x", padx=14)
+    # 表示する項目（※「演奏者（追加）」「内容（追加）」は除外）
+    fields = [c for c in ["作曲者","演奏者","ジャンル","メディア",
+                          "登録番号","レコード番号","レーベル","内容"] if c in row.index]
+    for c in fields:
+        tk.Label(frm, text=c, font=FONT_MED, anchor="w", fg="#555")\
+            .pack(fill="x", padx=pad, pady=(8, 0))
+        tk.Label(frm, text=str(row[c]), font=FONT_MED, anchor="w",
+                justify="left", wraplength=wrap)\
+            .pack(fill="x", padx=pad)
 
-    # 末尾に少し余白
-    tk.Frame(inner, height=10).pack()
+    # 余白
+    tk.Frame(frm, height=10).pack()
 
-    # --- フェードイン（80ms でスッと） ---
+    # ---- フェードイン（40ms） ----
     try:
         steps = max(1, FADE_IN_MS // FADE_STEP_MS)
         def _fade(step=0):
@@ -171,9 +125,8 @@ class App:
         self.root.title("Audio Search — tkinter")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        # 起動時フルスクリーン相当（ただしリサイズ可）
-        self.root.geometry(f"{sw}x{sh}+0+0")
-        self.root.resizable(True, True)
+        self.root.geometry(f"{sw}x{sh}+0+0")   # フルスクリーン相当で開始
+        self.root.resizable(True, True)        # 調整可能
 
         # ==== ヘッダー ====
         header = tk.Frame(self.root)
@@ -201,8 +154,8 @@ class App:
         entry_row.pack(pady=10)
         self.entry = tk.Entry(entry_row, width=40, font=FONT_LARGE)
         self.entry.pack(side="left", padx=(0,12), ipady=12)
-        btn_search = tk.Button(entry_row, text="検索", font=FONT_LARGE, command=self.do_search)
-        btn_search.pack(side="left")
+        tk.Button(entry_row, text="検索", font=FONT_LARGE, command=self.do_search)\
+            .pack(side="left")
         self.entry.bind("<Return>", lambda e: self.do_search())
 
         # ==== ボタン群（左寄せ） ====
@@ -230,6 +183,10 @@ class App:
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.bind("<Double-1>", self.on_row_double_click)
+
+        # ●行選択（シングルクリック等）で詳細を消す
+        self.tree.bind("<<TreeviewSelect>>", self.on_row_select_close_detail)
+
         scroll = ttk.Scrollbar(self.table_area, orient="vertical", command=self.tree.yview)
         scroll.pack(side="right", fill="y")
         self.tree.configure(yscroll=scroll.set)
@@ -259,7 +216,7 @@ class App:
 
         self.df_hits = None
         self.page = 1
-        self.detail_win = None  # 右側詳細を一枚に保つ
+        self.detail_win = None  # 右側詳細は常に1枚
 
     # ==== 検索処理 ====
     def do_search(self):
@@ -270,7 +227,6 @@ class App:
         self.update_table()
 
     def update_table(self):
-        # クリア
         for r in self.tree.get_children():
             self.tree.delete(r)
 
@@ -278,6 +234,8 @@ class App:
             self.label_count.config(text="ヒット件数: 0")
             self.table_area.pack_forget()
             self.nav.pack_forget()
+            # 検索結果が空になったら詳細も消す
+            self.close_detail_if_exists()
             return
 
         total = len(self.df_hits)
@@ -298,6 +256,7 @@ class App:
         self.table_area.pack(fill="both", expand=True, padx=20, pady=10)
         self.nav.pack(anchor="w", padx=50, pady=5)
 
+    # ==== 行ダブルクリック：詳細を右側に表示 ====
     def on_row_double_click(self, event):
         if self.df_hits is None or self.df_hits.empty:
             return
@@ -308,13 +267,21 @@ class App:
         start = (self.page - 1) * PAGE_SIZE
         row = self.df_hits.iloc[start + idx_in_page]
 
-        # 既存の詳細があれば閉じる（常に右側に1枚だけ）
+        # 既存詳細を閉じてから新規表示
+        self.close_detail_if_exists()
+        self.detail_win = show_detail_right_fade(row, self.root)
+
+    # ==== 行選択時：詳細を閉じる（背後に残さない） ====
+    def on_row_select_close_detail(self, event):
+        self.close_detail_if_exists()
+
+    def close_detail_if_exists(self):
         try:
             if self.detail_win is not None and self.detail_win.winfo_exists():
                 self.detail_win.destroy()
         except Exception:
             pass
-        self.detail_win = show_detail_right_fade(row, self.root)
+        self.detail_win = None
 
     # ==== ページ操作 ====
     def prev_page(self):
