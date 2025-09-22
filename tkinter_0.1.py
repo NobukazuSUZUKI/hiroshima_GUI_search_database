@@ -21,7 +21,7 @@ FONT_TITLE = ("Meiryo", 24, "bold")
 FONT_SUB   = ("Meiryo", 14)
 FONT_LARGE = ("Meiryo", 16)
 FONT_MED   = ("Meiryo", 12)
-FONT_BTN   = ("Meiryo", 12)
+FONT_BTN   = ("Meiryo", 11)
 
 DETAIL_BTN_FONT   = ("Meiryo", 12)
 DETAIL_BTN_WIDTH  = 10
@@ -68,69 +68,75 @@ class App:
         self.root.state("zoomed")
 
         # ==== ヘッダー ====
-        header = tk.Frame(self.root)
-        header.pack(anchor="w", padx=20, pady=(16,8))
+        header = tk.Frame(self.root, bg="#f5f5f5")
+        header.pack(anchor="w", fill="x", padx=20, pady=(16,8))
 
         logo_path = Path(__file__).resolve().parent / "logo.png"
         if PIL_OK and logo_path.exists():
             try:
                 img = Image.open(logo_path).resize((84, 84))
                 self.logo_img = ImageTk.PhotoImage(img)
-                tk.Label(header, image=self.logo_img).pack(side="left", padx=(0,16))
+                tk.Label(header, image=self.logo_img, bg="#f5f5f5").pack(side="left", padx=(0,16))
             except Exception:
                 pass
 
-        title_frame = tk.Frame(header)
+        title_frame = tk.Frame(header, bg="#f5f5f5")
         title_frame.pack(side="left")
-        tk.Label(title_frame, text="広島市映像文化ライブラリー", font=FONT_TITLE, anchor="w").pack(anchor="w")
-        tk.Label(title_frame, text="館内閲覧資料　検索データベース　[ベータ版 v2.8]", font=FONT_SUB, anchor="w").pack(anchor="w")
+        tk.Label(title_frame, text="広島市映像文化ライブラリー", font=FONT_TITLE, anchor="w", bg="#f5f5f5").pack(anchor="w")
+        tk.Label(title_frame, text="館内閲覧資料　検索データベース　[ベータ版 v3.0]", font=FONT_SUB, anchor="w", bg="#f5f5f5").pack(anchor="w")
 
         # ==== キーワード検索 ====
-        search_frame = tk.Frame(self.root)
-        search_frame.pack(pady=(10, 6))
-        tk.Label(search_frame, text="キーワード検索", font=FONT_LARGE).pack(anchor="center")
-        entry_row = tk.Frame(search_frame)
+        search_frame = tk.Frame(self.root, bg="#f5f5f5")
+        search_frame.pack(pady=(10, 6), fill="x")
+        tk.Label(search_frame, text="キーワード検索", font=FONT_LARGE, bg="#f5f5f5").pack(anchor="center")
+        entry_row = tk.Frame(search_frame, bg="#f5f5f5")
         entry_row.pack(pady=6)
         self.entry = tk.Entry(entry_row, width=40, font=FONT_LARGE)
         self.entry.pack(side="left", padx=(0,10), ipady=8)
         self.entry.bind("<Return>", lambda e: self.do_search())
 
         # ==== 機能ボタン ====
-        btns = tk.Frame(self.root)
+        btns = tk.Frame(self.root, bg="#f5f5f5")
         btns.pack(anchor="w", padx=40, pady=(6, 10))
 
-        tk.Button(btns, text="ホーム", font=FONT_BTN, width=12, height=1,
-                  command=self.go_home).pack(side="left", padx=8)
+        tk.Button(btns, text="ホーム", font=("Meiryo", 14, "bold"),
+                  width=14, height=2, bg="#ff9999", fg="white",
+                  relief="raised", command=self.go_home).pack(side="left", padx=12)
 
         tk.Button(btns, text="人名検索", font=FONT_BTN, width=12, height=1,
                   command=self.search_people).pack(side="left", padx=8)
 
+        # スペースを空ける
+        tk.Label(btns, text="   ", width=2, bg="#f5f5f5").pack(side="left")
+
         tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=12, height=1,
                   command=self.show_genre_panel).pack(side="left", padx=8)
 
-        tk.Button(btns, text="広島関係", font=FONT_BTN, width=12, height=1,
-                  command=self.search_hiroshima).pack(side="left", padx=8)
         tk.Button(btns, text="詳細検索", font=FONT_BTN, width=12, height=1,
                   command=self.search_advanced).pack(side="left", padx=8)
 
         # ==== 件数表示 ====
-        self.label_count = tk.Label(self.root, text="", font=FONT_MED)
+        self.label_count = tk.Label(self.root, text="", font=FONT_MED, bg="#f5f5f5")
         self.label_count.pack(anchor="w", padx=40)
 
         # ==== メイン表示領域 ====
-        self.main_area = tk.Frame(self.root)
+        self.main_area = tk.Frame(self.root, bg="#f5f5f5")
         self.main_area.pack(fill="both", expand=True, padx=20, pady=8)
 
         # 検索結果テーブル（初期は非表示）
-        self.table_area = tk.Frame(self.main_area)
+        self.table_area = tk.Frame(self.main_area, bg="#f5f5f5")
         style = ttk.Style()
         style.configure("Treeview", rowheight=24, font=FONT_MED)
         style.configure("Treeview.Heading", font=FONT_MED)
+        style.map("Treeview", background=[("selected", "#d0e0ff")])
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(self.table_area, orient="vertical", command=self.tree.yview)
+        scroll.pack(side="right", fill="y")
+        self.tree.configure(yscroll=scroll.set)
 
         # ページ操作
-        self.nav = tk.Frame(self.root)
+        self.nav = tk.Frame(self.root, bg="#f5f5f5")
         for text, cmd in [("先頭", self.to_first), ("前ページ", self.prev_page),
                           ("次ページ", self.next_page), ("最後", self.to_last)]:
             b = tk.Button(self.nav, text=text, font=FONT_MED, command=cmd,
@@ -163,25 +169,44 @@ class App:
         for w in self.main_area.winfo_children():
             w.pack_forget()
         self.nav.pack_forget()
+        self.df_hits = None  # リセット
 
     # ==== ジャンルパネル ====
     def show_genre_panel(self):
         self.go_home()
-        panel = tk.Frame(self.main_area)
-        panel.pack(fill="both", expand=True)
+        panel = tk.Frame(self.main_area, bg="#f5f5f5")
+        panel.pack(fill="both", expand=True, padx=20, pady=20)
 
         groups = self._group_genres(self.df_genre)
-        for key, group in groups.items():
+
+        col = 0
+        for key in ["R", "Y", "B", "G", "W"]:
+            if key not in groups:
+                continue
+            group = groups[key]
             title = group["title"]
             subs = group["subs"]
-            tk.Button(panel, text=title, font=("Meiryo", 14, "bold"),
-                      width=20, height=2,
-                      command=lambda g=title: self.search_by_genre(g)).pack(pady=(6,2))
-            row = tk.Frame(panel)
-            row.pack(anchor="w", pady=(0,6))
-            for name in subs:
-                tk.Button(row, text=name, font=FONT_BTN, width=18, height=1,
-                          command=lambda g=name: self.search_by_genre(g)).pack(side="left", padx=4)
+
+            frame = tk.Frame(panel, bg="#f5f5f5")
+            frame.grid(row=0, column=col, padx=30, sticky="n")
+
+            # 大ボタン
+            tk.Button(frame, text=title, font=("Meiryo", 14, "bold"),
+                      width=18, height=2, bg="#cce0ff", fg="black",
+                      relief="raised", command=lambda g=title: self.search_by_genre(g))\
+                .pack(pady=(0,10))
+
+            # 小ボタン 2列×5行
+            gridf = tk.Frame(frame, bg="#f5f5f5")
+            gridf.pack()
+            for i, name in enumerate(subs[:10]):
+                r, c = divmod(i, 2)
+                tk.Button(gridf, text=name, font=FONT_BTN, width=16, height=1,
+                          bg="white", relief="groove",
+                          command=lambda g=name: self.search_by_genre(g))\
+                    .grid(row=r, column=c, padx=6, pady=4)
+
+            col += 1
 
     def _group_genres(self, df: pd.DataFrame):
         groups = {}
@@ -198,7 +223,19 @@ class App:
                 groups[head]["subs"].append(name)
         return groups
 
-    # ==== 検索処理 ====
+    # ==== ジャンル検索処理 ====
+    def search_by_genre(self, genre: str):
+        if "ジャンル" not in self.df_all.columns:
+            messagebox.showwarning("警告", "ジャンル列が見つかりません。")
+            return
+        mask = self.df_all["ジャンル"].str.contains(genre, na=False)
+        self.df_hits = self.df_all[mask].copy()
+        self.page = 1
+        self.show_table()
+        self.update_table()
+        self.label_count.config(text=f"ジャンル検索: {genre}　件数 {len(self.df_hits)}")
+
+    # ==== キーワード検索 ====
     def do_search(self):
         q = self.entry.get()
         mask = keyword_mask(self.df_all, q)
@@ -256,7 +293,6 @@ class App:
     def search_people(self): messagebox.showinfo("人名検索", "後で実装予定です。")
     def search_hiroshima(self): messagebox.showinfo("広島関係", "後で実装予定です。")
     def search_advanced(self): messagebox.showinfo("詳細検索", "後で実装予定です。")
-    def search_by_genre(self, g): messagebox.showinfo("ジャンル検索", f"{g} を検索予定です。")
 
 # ========= 起動 =========
 def main():
