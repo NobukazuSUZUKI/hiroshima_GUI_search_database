@@ -26,6 +26,9 @@ DETAIL_BTN_FONT   = ("Meiryo", 12)
 DETAIL_BTN_WIDTH  = 10
 DETAIL_BTN_HEIGHT = 1
 
+DETAIL_MARGIN_TOP = 40   # 上余白(px)
+DETAIL_MARGIN_BOTTOM = 80  # 下余白(px)
+
 # ========= データ読み込み =========
 def load_dataset(path: Path):
     df = pd.read_excel(path, sheet_name=SHEET_NAME)
@@ -211,9 +214,9 @@ class App:
         screen_h = self.root.winfo_screenheight()
         screen_w = self.root.winfo_screenwidth()
         win_w = int(screen_w * 0.5)   # 右半分
-        win_h = screen_h              # 上下いっぱい
+        win_h = screen_h - (DETAIL_MARGIN_TOP + DETAIL_MARGIN_BOTTOM)  # 上下に余白
         x = screen_w - win_w
-        y = 0
+        y = DETAIL_MARGIN_TOP
 
         win = tk.Toplevel(self.root)
         win.title("詳細表示")
@@ -290,7 +293,7 @@ class App:
         self.prev_btn = None
         self.next_btn = None
 
-    # ==== ナビ（元のシンプル動作） ====
+    # ==== ナビ ====
     def nav_detail(self, delta: int):
         if self.detail_abs_index is None or self.df_hits is None:
             return
