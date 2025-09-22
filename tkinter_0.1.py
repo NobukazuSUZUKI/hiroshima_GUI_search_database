@@ -151,6 +151,9 @@ class App:
         self.root.title("Audio Search — tkinter")
         self.root.state("zoomed")  # 起動時に最大化
 
+        # ルート背景
+        self.root.configure(bg="white")
+
         # ==== ヘッダー ====
         header = tk.Frame(self.root, bg="white")
         header.pack(anchor="w", padx=20, pady=(16,8), fill="x")
@@ -168,7 +171,7 @@ class App:
         title_frame.pack(side="left")
         tk.Label(title_frame, text="広島市映像文化ライブラリー", font=FONT_TITLE,
                  anchor="w", bg="white", fg="black").pack(anchor="w")
-        tk.Label(title_frame, text="館内閲覧資料　検索データベース　[ベータ版 v4.4]",
+        tk.Label(title_frame, text="館内閲覧資料　検索データベース　[ベータ版 v4.6]",
                  font=FONT_SUB, anchor="w", bg="white", fg="black").pack(anchor="w")
 
         # ==== キーワード検索 ====
@@ -358,7 +361,7 @@ class App:
         list_frame = tk.Frame(kana_view, bg="white")
         list_frame.pack(fill="both", expand=True)
         sb = ttk.Scrollbar(list_frame, orient="vertical")
-        name_list = tk.Listbox(list_frame, font=FONT_MED, yscrollcommand=sb.set)
+        name_list = tk.Listbox(list_frame, font=FONT_MED, yscrollcommand=sb.set, bg="white")
         sb.config(command=name_list.yview)
         name_list.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
@@ -379,7 +382,7 @@ class App:
         alpha_list_frame = tk.Frame(alpha_view, bg="white")
         alpha_list_frame.pack(fill="both", expand=True)
         alpha_sb = ttk.Scrollbar(alpha_list_frame, orient="vertical")
-        alpha_list = tk.Listbox(alpha_list_frame, font=FONT_MED, yscrollcommand=alpha_sb.set)
+        alpha_list = tk.Listbox(alpha_list_frame, font=FONT_MED, yscrollcommand=alpha_sb.set, bg="white")
         alpha_sb.config(command=alpha_list.yview)
         alpha_list.pack(side="left", fill="both", expand=True)
         alpha_sb.pack(side="right", fill="y")
@@ -584,7 +587,7 @@ class App:
         x = screen_w - win_w - DETAIL_MARGIN_RIGHT
         y = DETAIL_MARGIN_TOP
 
-        win = tk.Toplevel(self.root)
+        win = tk.Toplevel(self.root, bg="white")
         win.title("詳細表示")
         win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         win.resizable(True, True)
@@ -593,18 +596,18 @@ class App:
         win.grab_set()
         win.focus_force()
 
-        rootf = tk.Frame(win)
+        rootf = tk.Frame(win, bg="white")
         rootf.pack(fill="both", expand=True)
         rootf.rowconfigure(0, weight=1)  # 本文スクロール
         rootf.rowconfigure(1, weight=0)  # ボタンバー固定
         rootf.columnconfigure(0, weight=1)
 
         # 本文（スクロール）
-        scroll_frame = tk.Frame(rootf)
+        scroll_frame = tk.Frame(rootf, bg="white")
         scroll_frame.grid(row=0, column=0, sticky="nsew")
-        canvas = tk.Canvas(scroll_frame, highlightthickness=0)
+        canvas = tk.Canvas(scroll_frame, highlightthickness=0, bg="white")
         vbar = ttk.Scrollbar(scroll_frame, orient="vertical", command=canvas.yview)
-        content = tk.Frame(canvas)
+        content = tk.Frame(canvas, bg="white")
         content_id = canvas.create_window((0, 0), window=content, anchor="nw")
         canvas.configure(yscrollcommand=vbar.set)
         canvas.pack(side="left", fill="both", expand=True)
@@ -616,22 +619,24 @@ class App:
         self.detail_labels = {}
         lbl_title = tk.Label(content, text=row.get("タイトル",""),
                              font=("Meiryo", 18, "bold"),
-                             anchor="w", justify="left", wraplength=win_w - pad*2)
+                             anchor="w", justify="left", wraplength=win_w - pad*2,
+                             bg="white", fg="black")
         lbl_title.pack(fill="x", padx=pad, pady=(pad, 6))
         self.detail_labels["タイトル"] = lbl_title
 
         fields = [c for c in ["作曲者","演奏者","ジャンル","メディア",
                               "登録番号","レコード番号","レーベル","内容"] if c in row.index]
         for c in fields:
-            cap = tk.Label(content, text=c, font=FONT_MED, anchor="w", fg="#555")
+            cap = tk.Label(content, text=c, font=FONT_MED, anchor="w", fg="#555", bg="white")
             cap.pack(fill="x", padx=pad, pady=(6, 0))
             val = tk.Label(content, text=str(row[c]), font=FONT_MED,
-                           anchor="w", justify="left", wraplength=win_w - pad*2)
+                           anchor="w", justify="left", wraplength=win_w - pad*2,
+                           bg="white", fg="black")
             val.pack(fill="x", padx=pad)
             self.detail_labels[c] = val
 
         # ボタンバー（固定）
-        btnbar = tk.Frame(rootf)
+        btnbar = tk.Frame(rootf, bg="white")
         btnbar.grid(row=1, column=0, sticky="ew")
         btnbar.columnconfigure(2, weight=1)
 
