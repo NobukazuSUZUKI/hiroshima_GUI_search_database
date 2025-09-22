@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 import pandas as pd
@@ -13,23 +12,19 @@ try:
 except Exception:
     PIL_OK = False
 
-# ========= 設定（小さめフォントに調整） =========
+# ========= 設定 =========
 SHEET_NAME = "Sheet"
 PAGE_SIZE  = 10   # 検索結果は10行表示
 
-FONT_TITLE = ("Meiryo", 24, "bold")   # 28 → 24
-FONT_SUB   = ("Meiryo", 14)           # 18 → 14
-FONT_LARGE = ("Meiryo", 16)           # 20 → 16
-FONT_MED   = ("Meiryo", 12)           # 14 → 12
-FONT_BTN   = ("Meiryo", 12)           # 16 → 12
+FONT_TITLE = ("Meiryo", 24, "bold")
+FONT_SUB   = ("Meiryo", 14)
+FONT_LARGE = ("Meiryo", 16)
+FONT_MED   = ("Meiryo", 12)
+FONT_BTN   = ("Meiryo", 12)
 
-# 詳細ウィンドウ関連（ボタン小さめ）
-DETAIL_WIDTH_PCT   = 0.50   # 幅：親の50%
-DETAIL_TOP_MARGIN  = 0
-DETAIL_HEIGHT_PCT  = 0.70   # 高さ：親の70%（さらに画面高さからの上限もかける）
-DETAIL_BTN_FONT    = ("Meiryo", 12)
-DETAIL_BTN_WIDTH   = 10
-DETAIL_BTN_HEIGHT  = 1
+DETAIL_BTN_FONT   = ("Meiryo", 12)
+DETAIL_BTN_WIDTH  = 10
+DETAIL_BTN_HEIGHT = 1
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -65,7 +60,7 @@ class App:
         self.root.title("Audio Search — tkinter")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        self.root.geometry(f"{sw}x{sh}+0+0")   # 全画面相当で開始
+        self.root.geometry(f"{sw}x{sh}+0+0")
         self.root.resizable(True, True)
 
         # ==== ヘッダー ====
@@ -94,10 +89,9 @@ class App:
         entry_row.pack(pady=8)
         self.entry = tk.Entry(entry_row, width=40, font=FONT_LARGE)
         self.entry.pack(side="left", padx=(0,10), ipady=8)
-        # 検索ボタン無し → Enterで検索
         self.entry.bind("<Return>", lambda e: self.do_search())
 
-        # ==== ボタン群（後で中身実装） ====
+        # ==== ボタン群 ====
         btns = tk.Frame(self.root)
         btns.pack(anchor="w", padx=40, pady=(8, 12))
         tk.Button(btns, text="人名検索", font=FONT_BTN, width=12, height=1,
@@ -116,16 +110,13 @@ class App:
         # ==== 検索結果テーブル ====
         self.table_area = tk.Frame(self.root)
         style = ttk.Style()
-        style.configure("Treeview", rowheight=24, font=FONT_MED)       # 行高も少し下げる
+        style.configure("Treeview", rowheight=24, font=FONT_MED)
         style.configure("Treeview.Heading", font=FONT_MED)
         style.map("Treeview", background=[("selected", "#d0e0ff")])
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.bind("<Double-1>", self.on_row_double_click)
 
-        # シングル選択で詳細を閉じる（ページ遷移などの自動選択は抑制）
-        self._suppress_select_event = False
-        self._suppress_token = 0
         self.tree.bind("<<TreeviewSelect>>", self.on_row_select_maybe_close_detail)
 
         scroll = ttk.Scrollbar(self.table_area, orient="vertical", command=self.tree.yview)
@@ -153,12 +144,11 @@ class App:
         self.tree.configure(columns=cols_ids)
         for i, c in enumerate(self.main_cols):
             self.tree.heading(cols_ids[i], text=c)
-            self.tree.column(cols_ids[i], width=180, anchor="w")  # 列幅も少し控えめ
+            self.tree.column(cols_ids[i], width=180, anchor="w")
 
         self.df_hits = None
         self.page = 1
 
-        # 詳細ウィンドウ管理
         self.detail_win = None
         self.detail_abs_index = None
         self.detail_labels = {}
@@ -212,75 +202,49 @@ class App:
         self.close_detail_if_exists()
         self.create_detail_window(self.df_hits.iloc[abs_idx], abs_idx)
 
-    # ==== シングル選択で詳細を閉じる（自動選択は抑制） ====
     def on_row_select_maybe_close_detail(self, event):
-        if self._suppress_select_event:
-            return
         self.close_detail_if_exists()
 
-    # ==== 詳細ウィンドウ（本文はスクロール可能、下ボタンは固定） ====
+    # ==== 詳細ウィンドウ ====
     def create_detail_window(self, row: pd.Series, abs_index: int):
         self.detail_abs_index = abs_index
         self.root.update_idletasks()
 
-        # 親ウィンドウ基準のサイズ案
-        px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
-        pw, ph = self.root.winfo_width(), self.root.winfo_height()
-        trial_w = max(420, int(pw * DETAIL_WIDTH_PCT))
-        trial_h = max(300, int(ph * DETAIL_HEIGHT_PCT))
-
-        # 画面高に収まるよう上限も設定（下ボタンが隠れないよう余白120px）
         screen_h = self.root.winfo_screenheight()
-        max_h = max(360, screen_h - 120)
-        win_w = trial_w
-        win_h = min(trial_h, max_h)
-
-        x = px + pw - win_w
-        y = py + DETAIL_TOP_MARGIN
+        screen_w = self.root.winfo_screenwidth()
+        win_w = int(screen_w * 0.5)
+        win_h = screen_h - 40  # 上下ギリギリまで広げる
+        x = screen_w - win_w
+        y = 0
 
         win = tk.Toplevel(self.root)
         win.title("詳細表示")
         win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         win.resizable(True, True)
 
-        # 矢印キーで前後移動
-        win.bind("<Left>",  lambda e: self.nav_detail(-1))
-        win.bind("<Up>",    lambda e: self.nav_detail(-1))
-        win.bind("<Right>", lambda e: self.nav_detail(+1))
-        win.bind("<Down>",  lambda e: self.nav_detail(+1))
-
-        # 2段構成：上＝スクロール内容、下＝ボタンバー（固定）
         rootf = tk.Frame(win)
         rootf.pack(fill="both", expand=True)
         rootf.rowconfigure(0, weight=1)
         rootf.rowconfigure(1, weight=0)
         rootf.columnconfigure(0, weight=1)
 
-        # ---- スクロール内容エリア ----
+        # スクロール付き本文
         scroll_frame = tk.Frame(rootf)
         scroll_frame.grid(row=0, column=0, sticky="nsew")
-
         canvas = tk.Canvas(scroll_frame, highlightthickness=0)
         vbar = ttk.Scrollbar(scroll_frame, orient="vertical", command=canvas.yview)
         content = tk.Frame(canvas)
-
         content_id = canvas.create_window((0, 0), window=content, anchor="nw")
         canvas.configure(yscrollcommand=vbar.set)
-
         canvas.pack(side="left", fill="both", expand=True)
         vbar.pack(side="right", fill="y")
-
-        def _on_configure(event):
-            # コンテンツ幅に合わせてキャンバス幅を拡張（折り返し計算のため）
-            canvas.itemconfigure(content_id, width=event.width)
         content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", _on_configure)
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(content_id, width=e.width))
 
         pad = 14
         self.detail_labels = {}
-
         lbl_title = tk.Label(content, text=row.get("タイトル",""),
-                             font=("Meiryo", 18, "bold"),  # タイトルも控えめ
+                             font=("Meiryo", 18, "bold"),
                              anchor="w", justify="left", wraplength=win_w - pad*2)
         lbl_title.pack(fill="x", padx=pad, pady=(pad, 6))
         self.detail_labels["タイトル"] = lbl_title
@@ -295,13 +259,10 @@ class App:
             val.pack(fill="x", padx=pad)
             self.detail_labels[c] = val
 
-        # ---- ボタンバー（固定） ----
+        # ボタンバー
         btnbar = tk.Frame(rootf)
         btnbar.grid(row=1, column=0, sticky="ew")
-        btnbar.columnconfigure(0, weight=0)
-        btnbar.columnconfigure(1, weight=0)
         btnbar.columnconfigure(2, weight=1)
-        btnbar.columnconfigure(3, weight=0)
 
         self.prev_btn = tk.Button(btnbar, text="前資料",
                                   font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
@@ -309,13 +270,13 @@ class App:
         self.next_btn = tk.Button(btnbar, text="次資料",
                                   font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
                                   command=lambda: self.nav_detail(+1))
-        self.prev_btn.grid(row=0, column=0, padx=(10, 6), pady=(6, 10), sticky="w")
-        self.next_btn.grid(row=0, column=1, padx=(0, 6),  pady=(6, 10), sticky="w")
+        self.prev_btn.grid(row=0, column=0, padx=(10,6), pady=(6,10), sticky="w")
+        self.next_btn.grid(row=0, column=1, padx=(0,6),  pady=(6,10), sticky="w")
 
         close_btn = tk.Button(btnbar, text="閉じる",
                               font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
                               command=self.close_detail_if_exists)
-        close_btn.grid(row=0, column=3, padx=(0, 10), pady=(6, 10), sticky="e")
+        close_btn.grid(row=0, column=3, padx=(0,10), pady=(6,10), sticky="e")
 
         self.detail_win = win
 
@@ -342,42 +303,50 @@ class App:
         row = self.df_hits.iloc[new_idx]
         self.update_detail_labels(row)
 
+        # Treeviewの選択も同期
+        start = (self.page - 1) * PAGE_SIZE
+        new_page = (new_idx // PAGE_SIZE) + 1
+        if new_page != self.page:
+            self.page = new_page
+            self.update_table()
+        rel_idx = new_idx - (self.page-1)*PAGE_SIZE
+        items = self.tree.get_children()
+        if 0 <= rel_idx < len(items):
+            item_id = items[rel_idx]
+            self.tree.selection_set(item_id)
+            self.tree.see(item_id)
+
     def update_detail_labels(self, row: pd.Series):
         if not self.detail_labels:
             return
         if "タイトル" in self.detail_labels:
             self.detail_labels["タイトル"].config(text=row.get("タイトル",""))
         for c, lbl in self.detail_labels.items():
-            if c == "タイトル": 
-                continue
+            if c == "タイトル": continue
             if c in row.index:
                 lbl.config(text=str(row[c]))
 
     # ==== ページ操作 ====
     def prev_page(self):
-        if self.df_hits is None:
-            return
+        if self.df_hits is None: return
         if self.page > 1:
             self.page -= 1
             self.update_table()
 
     def next_page(self):
-        if self.df_hits is None:
-            return
+        if self.df_hits is None: return
         maxp = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         if self.page < maxp:
             self.page += 1
             self.update_table()
 
     def to_first(self):
-        if self.df_hits is None:
-            return
+        if self.df_hits is None: return
         self.page = 1
         self.update_table()
 
     def to_last(self):
-        if self.df_hits is None:
-            return
+        if self.df_hits is None: return
         self.page = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         self.update_table()
 
