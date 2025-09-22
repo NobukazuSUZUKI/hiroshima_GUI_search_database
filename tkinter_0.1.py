@@ -13,25 +13,23 @@ try:
 except Exception:
     PIL_OK = False
 
-# ========= 設定 =========
+# ========= 設定（小さめフォントに調整） =========
 SHEET_NAME = "Sheet"
 PAGE_SIZE  = 10   # 検索結果は10行表示
-FONT_TITLE = ("Meiryo", 28, "bold")
-FONT_SUB   = ("Meiryo", 18)
-FONT_LARGE = ("Meiryo", 20)
-FONT_MED   = ("Meiryo", 14)
-FONT_BTN   = ("Meiryo", 16)
 
-# 詳細ウィンドウ関連
-DETAIL_WIDTH_PCT  = 0.50   # 右側“全体”＝画面の右半分
-DETAIL_TOP_MARGIN = 0      # 上マージン
-DETAIL_HEIGHT_PCT = 0.70   # 高さは親ウィンドウの70%
-FADE_IN_MS        = 40
-FADE_STEP_MS      = 10
+FONT_TITLE = ("Meiryo", 24, "bold")   # 28 → 24
+FONT_SUB   = ("Meiryo", 14)           # 18 → 14
+FONT_LARGE = ("Meiryo", 16)           # 20 → 16
+FONT_MED   = ("Meiryo", 12)           # 14 → 12
+FONT_BTN   = ("Meiryo", 12)           # 16 → 12
 
-DETAIL_BTN_FONT   = ("Meiryo", 14)
-DETAIL_BTN_WIDTH  = 10
-DETAIL_BTN_HEIGHT = 1
+# 詳細ウィンドウ関連（ボタン小さめ）
+DETAIL_WIDTH_PCT   = 0.50   # 幅：親の50%
+DETAIL_TOP_MARGIN  = 0
+DETAIL_HEIGHT_PCT  = 0.70   # 高さ：親の70%（さらに画面高さからの上限もかける）
+DETAIL_BTN_FONT    = ("Meiryo", 12)
+DETAIL_BTN_WIDTH   = 10
+DETAIL_BTN_HEIGHT  = 1
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -67,19 +65,19 @@ class App:
         self.root.title("Audio Search — tkinter")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        self.root.geometry(f"{sw}x{sh}+0+0")   # フルスクリーン相当で開始
+        self.root.geometry(f"{sw}x{sh}+0+0")   # 全画面相当で開始
         self.root.resizable(True, True)
 
         # ==== ヘッダー ====
         header = tk.Frame(self.root)
-        header.pack(anchor="w", padx=20, pady=(20,10))
+        header.pack(anchor="w", padx=20, pady=(16,8))
 
         logo_path = Path(__file__).resolve().parent / "logo.png"
         if PIL_OK and logo_path.exists():
             try:
-                img = Image.open(logo_path).resize((100, 100))
+                img = Image.open(logo_path).resize((84, 84))
                 self.logo_img = ImageTk.PhotoImage(img)
-                tk.Label(header, image=self.logo_img).pack(side="left", padx=(0,20))
+                tk.Label(header, image=self.logo_img).pack(side="left", padx=(0,16))
             except Exception:
                 pass
 
@@ -90,41 +88,42 @@ class App:
 
         # ==== キーワード検索 ====
         search_frame = tk.Frame(self.root)
-        search_frame.pack(pady=(20, 10))
+        search_frame.pack(pady=(16, 8))
         tk.Label(search_frame, text="キーワード検索", font=FONT_LARGE).pack(anchor="center")
         entry_row = tk.Frame(search_frame)
-        entry_row.pack(pady=10)
+        entry_row.pack(pady=8)
         self.entry = tk.Entry(entry_row, width=40, font=FONT_LARGE)
-        self.entry.pack(side="left", padx=(0,12), ipady=12)
-        # 検索ボタン削除 → Enterキーで検索
+        self.entry.pack(side="left", padx=(0,10), ipady=8)
+        # 検索ボタン無し → Enterで検索
         self.entry.bind("<Return>", lambda e: self.do_search())
 
-        # ==== ボタン群 ====
+        # ==== ボタン群（後で中身実装） ====
         btns = tk.Frame(self.root)
-        btns.pack(anchor="w", padx=50, pady=(10, 20))
-        tk.Button(btns, text="人名検索", font=FONT_BTN, width=14, height=2,
-                  command=self.search_people).pack(side="left", padx=10)
-        tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=14, height=2,
-                  command=self.search_genre).pack(side="left", padx=10)
-        tk.Button(btns, text="広島関係", font=FONT_BTN, width=14, height=2,
-                  command=self.search_hiroshima).pack(side="left", padx=10)
-        tk.Button(btns, text="詳細検索", font=FONT_BTN, width=14, height=2,
-                  command=self.search_advanced).pack(side="left", padx=10)
+        btns.pack(anchor="w", padx=40, pady=(8, 12))
+        tk.Button(btns, text="人名検索", font=FONT_BTN, width=12, height=1,
+                  command=self.search_people).pack(side="left", padx=8)
+        tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=12, height=1,
+                  command=self.search_genre).pack(side="left", padx=8)
+        tk.Button(btns, text="広島関係", font=FONT_BTN, width=12, height=1,
+                  command=self.search_hiroshima).pack(side="left", padx=8)
+        tk.Button(btns, text="詳細検索", font=FONT_BTN, width=12, height=1,
+                  command=self.search_advanced).pack(side="left", padx=8)
 
         # ==== 件数表示 ====
         self.label_count = tk.Label(self.root, text="", font=FONT_MED)
-        self.label_count.pack(anchor="w", padx=50)
+        self.label_count.pack(anchor="w", padx=40)
 
         # ==== 検索結果テーブル ====
         self.table_area = tk.Frame(self.root)
         style = ttk.Style()
-        style.configure("Treeview", rowheight=28, font=FONT_MED)
+        style.configure("Treeview", rowheight=24, font=FONT_MED)       # 行高も少し下げる
         style.configure("Treeview.Heading", font=FONT_MED)
         style.map("Treeview", background=[("selected", "#d0e0ff")])
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.bind("<Double-1>", self.on_row_double_click)
 
+        # シングル選択で詳細を閉じる（ページ遷移などの自動選択は抑制）
         self._suppress_select_event = False
         self._suppress_token = 0
         self.tree.bind("<<TreeviewSelect>>", self.on_row_select_maybe_close_detail)
@@ -139,7 +138,7 @@ class App:
                           ("次ページ", self.next_page), ("最後", self.to_last)]:
             b = tk.Button(self.nav, text=text, font=FONT_MED, command=cmd,
                           relief="groove", borderwidth=2, width=8)
-            b.pack(side="left", padx=8, pady=10)
+            b.pack(side="left", padx=6, pady=8)
 
         # ==== データ ====
         excel_path = Path(__file__).resolve().parent / "all_data.xlsx"
@@ -154,7 +153,7 @@ class App:
         self.tree.configure(columns=cols_ids)
         for i, c in enumerate(self.main_cols):
             self.tree.heading(cols_ids[i], text=c)
-            self.tree.column(cols_ids[i], width=200, anchor="w")
+            self.tree.column(cols_ids[i], width=180, anchor="w")  # 列幅も少し控えめ
 
         self.df_hits = None
         self.page = 1
@@ -196,8 +195,8 @@ class App:
         self.tree.tag_configure("even", background="white")
         pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
         self.label_count.config(text=f"ヒット件数: {total}   ページ {self.page}/{pages}")
-        self.table_area.pack(fill="both", expand=True, padx=20, pady=10)
-        self.nav.pack(anchor="w", padx=50, pady=5)
+        self.table_area.pack(fill="both", expand=True, padx=20, pady=8)
+        self.nav.pack(anchor="w", padx=40, pady=4)
 
     # ==== ダブルクリックで詳細を開く ====
     def on_row_double_click(self, event):
@@ -213,21 +212,32 @@ class App:
         self.close_detail_if_exists()
         self.create_detail_window(self.df_hits.iloc[abs_idx], abs_idx)
 
-    # ==== シングルクリックで詳細を閉じる ====
+    # ==== シングル選択で詳細を閉じる（自動選択は抑制） ====
     def on_row_select_maybe_close_detail(self, event):
         if self._suppress_select_event:
             return
         self.close_detail_if_exists()
 
-    # ==== 詳細ウィンドウ ====
+    # ==== 詳細ウィンドウ（本文はスクロール可能、下ボタンは固定） ====
     def create_detail_window(self, row: pd.Series, abs_index: int):
         self.detail_abs_index = abs_index
         self.root.update_idletasks()
+
+        # 親ウィンドウ基準のサイズ案
         px, py = self.root.winfo_rootx(), self.root.winfo_rooty()
         pw, ph = self.root.winfo_width(), self.root.winfo_height()
-        win_w = max(480, int(pw * DETAIL_WIDTH_PCT))
-        win_h = max(300, int(ph * DETAIL_HEIGHT_PCT))
-        x, y = px + pw - win_w, py + DETAIL_TOP_MARGIN
+        trial_w = max(420, int(pw * DETAIL_WIDTH_PCT))
+        trial_h = max(300, int(ph * DETAIL_HEIGHT_PCT))
+
+        # 画面高に収まるよう上限も設定（下ボタンが隠れないよう余白120px）
+        screen_h = self.root.winfo_screenheight()
+        max_h = max(360, screen_h - 120)
+        win_w = trial_w
+        win_h = min(trial_h, max_h)
+
+        x = px + pw - win_w
+        y = py + DETAIL_TOP_MARGIN
+
         win = tk.Toplevel(self.root)
         win.title("詳細表示")
         win.geometry(f"{win_w}x{win_h}+{x}+{y}")
@@ -239,44 +249,74 @@ class App:
         win.bind("<Right>", lambda e: self.nav_detail(+1))
         win.bind("<Down>",  lambda e: self.nav_detail(+1))
 
-        # 内容エリア
+        # 2段構成：上＝スクロール内容、下＝ボタンバー（固定）
         rootf = tk.Frame(win)
         rootf.pack(fill="both", expand=True)
-        content = tk.Frame(rootf)
-        content.pack(fill="both", expand=True)
-        pad = 16
-        wrap = win_w - pad*2
+        rootf.rowconfigure(0, weight=1)
+        rootf.rowconfigure(1, weight=0)
+        rootf.columnconfigure(0, weight=1)
+
+        # ---- スクロール内容エリア ----
+        scroll_frame = tk.Frame(rootf)
+        scroll_frame.grid(row=0, column=0, sticky="nsew")
+
+        canvas = tk.Canvas(scroll_frame, highlightthickness=0)
+        vbar = ttk.Scrollbar(scroll_frame, orient="vertical", command=canvas.yview)
+        content = tk.Frame(canvas)
+
+        content_id = canvas.create_window((0, 0), window=content, anchor="nw")
+        canvas.configure(yscrollcommand=vbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
+
+        def _on_configure(event):
+            # コンテンツ幅に合わせてキャンバス幅を拡張（折り返し計算のため）
+            canvas.itemconfigure(content_id, width=event.width)
+        content.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", _on_configure)
+
+        pad = 14
         self.detail_labels = {}
+
         lbl_title = tk.Label(content, text=row.get("タイトル",""),
-                             font=("Meiryo", 20, "bold"),
-                             anchor="w", justify="left", wraplength=wrap)
-        lbl_title.pack(fill="x", padx=pad, pady=(pad, 8))
+                             font=("Meiryo", 18, "bold"),  # タイトルも控えめ
+                             anchor="w", justify="left", wraplength=win_w - pad*2)
+        lbl_title.pack(fill="x", padx=pad, pady=(pad, 6))
         self.detail_labels["タイトル"] = lbl_title
+
         fields = [c for c in ["作曲者","演奏者","ジャンル","メディア",
                               "登録番号","レコード番号","レーベル","内容"] if c in row.index]
         for c in fields:
             cap = tk.Label(content, text=c, font=FONT_MED, anchor="w", fg="#555")
-            cap.pack(fill="x", padx=pad, pady=(8, 0))
+            cap.pack(fill="x", padx=pad, pady=(6, 0))
             val = tk.Label(content, text=str(row[c]), font=FONT_MED,
-                           anchor="w", justify="left", wraplength=wrap)
+                           anchor="w", justify="left", wraplength=win_w - pad*2)
             val.pack(fill="x", padx=pad)
             self.detail_labels[c] = val
 
-        # ボタンバー
+        # ---- ボタンバー（固定） ----
         btnbar = tk.Frame(rootf)
-        btnbar.pack(fill="x")
+        btnbar.grid(row=1, column=0, sticky="ew")
+        btnbar.columnconfigure(0, weight=0)
+        btnbar.columnconfigure(1, weight=0)
+        btnbar.columnconfigure(2, weight=1)
+        btnbar.columnconfigure(3, weight=0)
+
         self.prev_btn = tk.Button(btnbar, text="前資料",
                                   font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
                                   command=lambda: self.nav_detail(-1))
         self.next_btn = tk.Button(btnbar, text="次資料",
                                   font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
                                   command=lambda: self.nav_detail(+1))
-        self.prev_btn.pack(side="left", padx=10, pady=8)
-        self.next_btn.pack(side="left", padx=10, pady=8)
+        self.prev_btn.grid(row=0, column=0, padx=(10, 6), pady=(6, 10), sticky="w")
+        self.next_btn.grid(row=0, column=1, padx=(0, 6),  pady=(6, 10), sticky="w")
+
         close_btn = tk.Button(btnbar, text="閉じる",
                               font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
                               command=self.close_detail_if_exists)
-        close_btn.pack(side="right", padx=10, pady=8)
+        close_btn.grid(row=0, column=3, padx=(0, 10), pady=(6, 10), sticky="e")
+
         self.detail_win = win
 
     def close_detail_if_exists(self):
@@ -308,31 +348,36 @@ class App:
         if "タイトル" in self.detail_labels:
             self.detail_labels["タイトル"].config(text=row.get("タイトル",""))
         for c, lbl in self.detail_labels.items():
-            if c == "タイトル": continue
+            if c == "タイトル": 
+                continue
             if c in row.index:
                 lbl.config(text=str(row[c]))
 
     # ==== ページ操作 ====
     def prev_page(self):
-        if self.df_hits is None: return
+        if self.df_hits is None:
+            return
         if self.page > 1:
             self.page -= 1
             self.update_table()
 
     def next_page(self):
-        if self.df_hits is None: return
+        if self.df_hits is None:
+            return
         maxp = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         if self.page < maxp:
             self.page += 1
             self.update_table()
 
     def to_first(self):
-        if self.df_hits is None: return
+        if self.df_hits is None:
+            return
         self.page = 1
         self.update_table()
 
     def to_last(self):
-        if self.df_hits is None: return
+        if self.df_hits is None:
+            return
         self.page = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         self.update_table()
 
