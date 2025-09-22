@@ -7,7 +7,7 @@ import pandas as pd
 import re
 from pathlib import Path
 
-SHEET_NAME = "絞込0"
+SHEET_NAME = "Sheet"   # ← 修正ポイント
 PAGE_SIZE = 20
 
 # --- データ読み込み ---
