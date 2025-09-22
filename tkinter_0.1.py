@@ -22,6 +22,10 @@ FONT_LARGE = ("Meiryo", 16)
 FONT_MED   = ("Meiryo", 12)
 FONT_BTN   = ("Meiryo", 12)
 
+DETAIL_BTN_FONT   = ("Meiryo", 12)
+DETAIL_BTN_WIDTH  = 10
+DETAIL_BTN_HEIGHT = 1
+
 # ========= データ読み込み =========
 def load_dataset(path: Path):
     df = pd.read_excel(path, sheet_name=SHEET_NAME)
@@ -90,7 +94,6 @@ class App:
         btns = tk.Frame(self.root, bg="white")
         btns.pack(anchor="w", padx=40, pady=(8, 12))
 
-        # ホームボタン追加
         tk.Button(btns, text="ホーム", font=FONT_BTN, width=12, height=1,
                   command=self.reset_home).pack(side="left", padx=8)
 
@@ -119,6 +122,9 @@ class App:
         scroll = ttk.Scrollbar(self.table_area, orient="vertical", command=self.tree.yview)
         scroll.pack(side="right", fill="y")
         self.tree.configure(yscroll=scroll.set)
+
+        # ダブルクリックで詳細
+        self.tree.bind("<Double-1>", self.on_row_double_click)
 
         # ==== ページ操作 ====
         self.nav = tk.Frame(self.root, bg="white")
@@ -184,29 +190,6 @@ class App:
 
     # ==== ジャンル検索モーダル ====
     def open_genre_dialog(self):
-        if "ジャンル" not in self.df_all.columns:
-            messagebox.showwarning("警告", "Excel に『ジャンル』列が見つかりません。")
-            return
-
-        dlg = tk.Toplevel(self.root, bg="white")
-        dlg.title("ジャンル検索")
-
-        # 大きめの画面（検索リストと同程度）
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        w, h = int(sw * 0.8), int(sh * 0.8)
-        x, y = (sw - w)//2, (sh - h)//2
-        dlg.geometry(f"{w}x{h}+{x}+{y}")
-        dlg.resizable(True, True)
-        dlg.transient(self.root)
-        dlg.grab_set()
-        dlg.focus_force()
-
-        tk.Label(dlg, text="ジャンルを選択してください", font=FONT_LARGE, bg="white", fg="black")\
-            .pack(pady=(12, 6))
-
-        host = tk.Frame(dlg, bg="white")
-        host.pack(fill="both", expand=True, padx=20, pady=20)
-
         groups = {
             "クラシック": ["交響曲","管弦楽曲","協奏曲","室内楽曲","独奏曲","歌劇","声楽曲","宗教曲","現代音楽","その他"],
             "ポピュラー": ["ヴォーカル, フォーク","ソウル, ブルース","ジャズ, ジャズ・ボーカル","ロック",
@@ -217,22 +200,30 @@ class App:
             "児童": ["児童音楽","児童文芸"]
         }
 
-        for parent, subs in groups.items():
-            frame = tk.Frame(host, bg="white", pady=8)
-            frame.pack(fill="x", pady=4)
+        dlg = tk.Toplevel(self.root, bg="white")
+        dlg.title("ジャンル検索")
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w, h = int(sw * 0.9), int(sh * 0.7)
+        x, y = (sw - w)//2, (sh - h)//2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
 
-            tk.Label(frame, text=parent, font=("Meiryo", 14, "bold"),
-                     bg="#e6e6e6", fg="black", anchor="w", padx=8)\
-                .pack(fill="x", pady=(2,6))
+        host = tk.Frame(dlg, bg="white")
+        host.pack(fill="both", expand=True, padx=20, pady=20)
 
-            gridf = tk.Frame(frame, bg="white")
-            gridf.pack()
-            for i, g in enumerate(subs):
-                r, c = divmod(i, 2)
-                b = tk.Button(gridf, text=g, font=FONT_BTN, width=22, height=1,
-                              bg="white", fg="black", relief="groove",
-                              command=lambda g=g, dlg=dlg: self.search_by_genre(g, dlg))
-                b.grid(row=r, column=c, padx=6, pady=4, sticky="ew")
+        # 横並びで親ジャンル + 縦にサブジャンル
+        for col, (parent, subs) in enumerate(groups.items()):
+            colf = tk.Frame(host, bg="white")
+            colf.grid(row=0, column=col, padx=20, sticky="n")
+
+            tk.Button(colf, text=parent, font=("Meiryo", 14, "bold"),
+                      bg="#e6e6e6", fg="black", width=14, relief="ridge")\
+                .pack(pady=(0,6))
+
+            for s in subs:
+                tk.Button(colf, text=s, font=FONT_BTN, width=18, height=1,
+                          bg="white", fg="black", relief="groove",
+                          command=lambda g=s, dlg=dlg: self.search_by_genre(g, dlg))\
+                    .pack(pady=2)
 
         tk.Button(dlg, text="閉じる", font=FONT_BTN, width=10,
                   bg="#e6e6e6", fg="black", command=dlg.destroy)\
@@ -246,6 +237,44 @@ class App:
         self.label_count.config(text=f"ジャンル検索: {genre}　件数 {len(self.df_hits)}")
         if dlg and dlg.winfo_exists():
             dlg.destroy()
+
+    # ==== 詳細表示 ====
+    def on_row_double_click(self, event):
+        if self.df_hits is None or self.df_hits.empty:
+            return
+        sel = self.tree.selection()
+        if not sel:
+            return
+        item_id = sel[0]
+        idx_in_page = self.tree.index(item_id)
+        start = (self.page - 1) * PAGE_SIZE
+        abs_idx = start + idx_in_page
+        self.create_detail_window(self.df_hits.iloc[abs_idx], abs_idx)
+
+    def create_detail_window(self, row: pd.Series, abs_index: int):
+        win = tk.Toplevel(self.root)
+        win.title("詳細表示")
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w, h = int(sw*0.4), int(sh*0.8)
+        x, y = sw-w-40, (sh-h)//2
+        win.geometry(f"{w}x{h}+{x}+{y}")
+
+        pad = 12
+        tk.Label(win, text=row.get("タイトル",""), font=("Meiryo", 16, "bold"),
+                 anchor="w", justify="left", wraplength=w-pad*2)\
+            .pack(fill="x", padx=pad, pady=(pad, 6))
+
+        fields = [c for c in ["作曲者","演奏者","ジャンル","メディア",
+                              "登録番号","レコード番号","レーベル","内容"] if c in row.index]
+        for c in fields:
+            tk.Label(win, text=c, font=FONT_MED, anchor="w", fg="#555")\
+                .pack(fill="x", padx=pad, pady=(6, 0))
+            tk.Label(win, text=str(row[c]), font=FONT_MED,
+                     anchor="w", justify="left", wraplength=w-pad*2)\
+                .pack(fill="x", padx=pad)
+
+        tk.Button(win, text="閉じる", font=FONT_BTN, command=win.destroy)\
+            .pack(pady=10)
 
     # ==== ページ操作 ====
     def prev_page(self):
