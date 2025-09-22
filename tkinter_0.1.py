@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import pandas as pd
 import re
+import unicodedata
 from pathlib import Path
 try:
     from PIL import Image, ImageTk
@@ -31,6 +32,58 @@ DETAIL_MARGIN_TOP = 40
 DETAIL_MARGIN_BOTTOM = 80
 DETAIL_MARGIN_RIGHT = 40  # 右余白
 
+# ========= 正規化ユーティリティ =========
+def kana_to_hira(s: str) -> str:
+    """カタカナをひらがなへ（半角カナも NFKC で全角化後に対応）"""
+    res = []
+    for ch in s:
+        code = ord(ch)
+        # 全角カタカナ範囲
+        if 0x30A1 <= code <= 0x30F6:
+            res.append(chr(code - 0x60))  # カタカナ→ひらがな
+        else:
+            res.append(ch)
+    return "".join(res)
+
+def normalize_for_match(s: str) -> str:
+    """検索用に正規化（NFKC→小文字→カタカナをひらがな）"""
+    if not isinstance(s, str):
+        s = str(s) if s is not None else ""
+    s = unicodedata.normalize("NFKC", s)
+    s = s.lower()
+    s = kana_to_hira(s)
+    return s
+
+# ========= 広島関連キーワード =========
+# 必要に応じてこのリストを増減してください（人物名を追加してもOK）
+HIROSHIMA_VARIANTS = [
+    "広島", "ひろしま", "ﾋﾛｼﾏ", "ヒロシマ", "廣島", "hiroshima"
+]
+
+HIROSHIMA_RELATED = [
+    # 施設・用語
+    "平和公園", "平和記念公園", "原爆ドーム", "被爆", "被爆者", "原爆", "原子爆弾",
+    # 県内地名（代表的な市町）
+    "広島市", "東広島", "廿日市", "大竹", "呉", "江田島", "三原", "竹原",
+    "尾道", "福山", "府中", "庄原", "三次", "安芸", "世羅", "神石高原",
+    # 観光・文化
+    "宮島", "厳島", "厳島神社", "縮景園",
+    # スポーツ
+    "カープ", "広島東洋カープ", "マツダスタジアム"
+]
+
+def build_hiroshima_pattern():
+    # キーワードを正規化して OR でつなぐ（正規表現の特殊文字はエスケープ）
+    keys = HIROSHIMA_VARIANTS + HIROSHIMA_RELATED
+    norm_keys = [normalize_for_match(k) for k in keys]
+    norm_keys = sorted(set(norm_keys), key=len, reverse=True)  # 長い語優先でマッチの安定化
+    escaped = [re.escape(k) for k in norm_keys if k]
+    if not escaped:
+        return None
+    return r"(?:%s)" % "|".join(escaped)
+
+HIROSHIMA_PATTERN = build_hiroshima_pattern()
+
 # ========= データ読み込み =========
 def load_dataset(path: Path):
     df = pd.read_excel(path, sheet_name=SHEET_NAME)
@@ -45,6 +98,8 @@ def load_dataset(path: Path):
         pref_cols = list(df.columns)
     # 全文（まとめ列）
     df["__全文__"] = df[pref_cols].agg("　".join, axis=1)
+    # 検索用 正規化全文
+    df["__norm__"] = df["__全文__"].map(normalize_for_match)
 
     # ✅ 表示カラムの順番を固定（No.は不要）
     main_cols = [c for c in ["登録番号","メディア","タイトル","演奏者","作曲者","ジャンル"] if c in df.columns]
@@ -57,9 +112,11 @@ def keyword_mask(df, q: str):
     if not q.strip():
         return pd.Series([True]*len(df), index=df.index)
     parts = [p for p in re.split(r"\s+", q.strip()) if p]
+    # 入力語も正規化して __norm__ と比較（部分一致 AND）
+    norm_parts = [normalize_for_match(p) for p in parts]
     mask = pd.Series([True]*len(df), index=df.index)
-    for p in parts:
-        mask = mask & df["__全文__"].str.contains(p, case=False, na=False)
+    for p in norm_parts:
+        mask = mask & df["__norm__"].str.contains(re.escape(p), na=False)
     return mask
 
 # ========= メインアプリ =========
@@ -122,16 +179,16 @@ class App:
         # ==== 検索結果テーブル ====
         self.table_area = tk.Frame(self.root, bg="white")
         style = ttk.Style()
-        # 背景/選択時の文字色（黒）を固定
         style.configure("Treeview",
                         rowheight=24,
                         font=FONT_MED,
                         background="white",
                         fieldbackground="white")
         style.configure("Treeview.Heading", font=FONT_MED)
+        # 選択時も黒文字のまま
         style.map("Treeview",
                   background=[("selected", "#d0e0ff")],
-                  foreground=[("selected", "black")])  # 選択時も黒文字
+                  foreground=[("selected", "black")])
 
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -237,7 +294,7 @@ class App:
         self.label_count.config(text="")
         self.entry.delete(0, tk.END)
 
-    # ==== ジャンル検索（ご指定レイアウト） ====
+    # ==== ジャンル検索（簡易モーダルのまま） ====
     def open_genre_dialog(self):
         groups = {
             "クラシック": ["交響曲","管弦楽曲","協奏曲","室内楽曲","独奏曲","歌劇","声楽曲","宗教曲","現代音楽","その他"],
@@ -293,22 +350,26 @@ class App:
         if dlg and dlg.winfo_exists():
             dlg.destroy()
 
-    # ==== ✅ 広島関係検索 ====
+    # ==== ✅ 広島関係検索（表記ゆれ + 関連地名/用語対応） ====
     def search_hiroshima(self):
         """
-        『広島』『ヒロシマ』を全文（__全文__）から部分一致で検索。
+        『広島/ひろしま/ﾋﾛｼﾏ/ヒロシマ/廣島/hiroshima』に加え、
+        広島に関係する地名・施設・用語（平和記念公園、原爆ドーム、宮島、呉、カープ 等）でもヒット。
+        すべて正規化(__norm__)に対して部分一致で検索。
         """
-        if "__全文__" not in self.df_all.columns:
-            messagebox.showerror("エラー", "検索対象列『__全文__』が見つかりません。Excelの読み込み処理をご確認ください。")
+        if "__norm__" not in self.df_all.columns:
+            messagebox.showerror("エラー", "検索対象列『__norm__』が見つかりません。Excelの読み込み処理をご確認ください。")
+            return
+        if not HIROSHIMA_PATTERN:
+            messagebox.showerror("エラー", "広島関連キーワードのパターンが生成できていません。")
             return
 
-        pattern = r"(広島|ヒロシマ)"
-        mask = self.df_all["__全文__"].str.contains(pattern, na=False)
+        mask = self.df_all["__norm__"].str.contains(HIROSHIMA_PATTERN, na=False)
         self.df_hits = self.df_all[mask].copy()
         self.page = 1
         self.update_table()
         self.close_detail_if_exists()
-        self.label_count.config(text=f"広島関係検索（広島/ヒロシマ）: 件数 {len(self.df_hits)}")
+        self.label_count.config(text=f"広島関係検索: 件数 {len(self.df_hits)}")
 
     # ==== 詳細表示（完全版）====
     def on_row_double_click(self, event):
