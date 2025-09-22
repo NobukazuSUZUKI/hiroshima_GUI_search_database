@@ -67,9 +67,9 @@ class App:
         self.root.title("Audio Search — tkinter")
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        # 起動時にフルスクリーン化
+        # 起動時フルスクリーン相当
         self.root.geometry(f"{sw}x{sh}+0+0")
-        # ✅ リサイズ可能にする
+        # 調整できるようにリサイズ可能
         self.root.resizable(True, True)
 
         # ==== ヘッダー ====
@@ -88,7 +88,8 @@ class App:
         title_frame = tk.Frame(header)
         title_frame.pack(side="left")
         tk.Label(title_frame, text="広島市映像文化ライブラリー", font=FONT_TITLE, anchor="w").pack(anchor="w")
-        tk.Label(title_frame, text="所蔵資料検索データベース（ベータ版）", font=FONT_SUB, anchor="w").pack(anchor="w")
+        # ★ サブタイトル変更
+        tk.Label(title_frame, text="館内閲覧資料　検索データベース　[ベータ版 v1.1]", font=FONT_SUB, anchor="w").pack(anchor="w")
 
         # ==== キーワード検索 ====
         search_frame = tk.Frame(self.root)
@@ -102,13 +103,17 @@ class App:
         btn_search.pack(side="left")
         self.entry.bind("<Return>", lambda e: self.do_search())
 
-        # ==== ボタン群 ====
+        # ==== ボタン群（左寄せ） ====
         btns = tk.Frame(self.root)
         btns.pack(anchor="w", padx=50, pady=(10, 20))
         tk.Button(btns, text="人名検索", font=FONT_BTN, width=14, height=2,
                   command=self.search_people).pack(side="left", padx=10)
         tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=14, height=2,
                   command=self.search_genre).pack(side="left", padx=10)
+        # ★ 追加：「広島関係」ボタン
+        tk.Button(btns, text="広島関係", font=FONT_BTN, width=14, height=2,
+                  command=self.search_hiroshima).pack(side="left", padx=10)
+        # ★ 「詳細検索」は一番右
         tk.Button(btns, text="詳細検索", font=FONT_BTN, width=14, height=2,
                   command=self.search_advanced).pack(side="left", padx=10)
 
@@ -116,7 +121,7 @@ class App:
         self.label_count = tk.Label(self.root, text="", font=FONT_MED)
         self.label_count.pack(anchor="w", padx=50)
 
-        # ==== 検索結果テーブル ====
+        # ==== 検索結果テーブル（初回は非表示） ====
         self.table_area = tk.Frame(self.root)
         style = ttk.Style()
         style.configure("Treeview", rowheight=28, font=FONT_MED)
@@ -179,7 +184,7 @@ class App:
         end   = min(start + PAGE_SIZE, total)
         view = self.df_hits.iloc[start:end]
 
-        # 行をリストとして取り出す
+        # 行をリストとして取り出す（日本語列名でも安全）
         rows = view[self.main_cols].astype(str).values.tolist()
         for i, vals in enumerate(rows):
             tag = "odd" if i % 2 else "even"
@@ -205,6 +210,7 @@ class App:
         row = self.df_hits.iloc[start + idx_in_page]
         show_detail(row, self.root)
 
+    # ==== ページ操作 ====
     def prev_page(self):
         if self.df_hits is None: return
         if self.page > 1:
@@ -228,11 +234,15 @@ class App:
         self.page = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         self.update_table()
 
+    # ==== 追加ボタンのプレースホルダ ====
     def search_people(self):
         messagebox.showinfo("人名検索", "後で実装予定です。")
 
     def search_genre(self):
         messagebox.showinfo("ジャンル検索", "後で実装予定です。")
+
+    def search_hiroshima(self):
+        messagebox.showinfo("広島関係", "後で実装予定です。広島に関する資料のクイックフィルタ等を想定。")
 
     def search_advanced(self):
         messagebox.showinfo("詳細検索", "後で実装予定です。")
