@@ -7,6 +7,7 @@ import pandas as pd
 import re
 import unicodedata
 from pathlib import Path
+
 try:
     from PIL import Image, ImageTk
     PIL_OK = True
@@ -15,7 +16,6 @@ except Exception:
 
 # ========= 設定 =========
 SHEET_NAME = "Sheet"
-NAME_SHEET = "Name"
 PAGE_SIZE  = 10   # 検索結果は10行表示
 
 FONT_TITLE = ("Meiryo", 24, "bold")
@@ -28,39 +28,41 @@ DETAIL_BTN_FONT   = ("Meiryo", 12)
 DETAIL_BTN_WIDTH  = 10
 DETAIL_BTN_HEIGHT = 1
 
-# 詳細ウィンドウの余白
+# 詳細ウィンドウの余白設定（完全版）
 DETAIL_MARGIN_TOP = 40
 DETAIL_MARGIN_BOTTOM = 80
 DETAIL_MARGIN_RIGHT = 40  # 右余白
 
 # ========= ユーティリティ =========
-def normalize_text(s: str) -> str:
-    """検索用に正規化（NFKC, 全角半角統一）"""
-    if not isinstance(s, str):
-        s = str(s)
-    return unicodedata.normalize("NFKC", s)
-
-def to_hiragana(s: str) -> str:
-    """カタカナ→ひらがな、小書き文字を標準化"""
-    s = normalize_text(s)
+def katakana_to_hiragana(s: str) -> str:
+    # カタカナ -> ひらがな（半角->全角も正規化）
+    if not s:
+        return s
+    s = unicodedata.normalize('NFKC', s)
     res = []
     for ch in s:
         code = ord(ch)
-        # カタカナ → ひらがな
-        if 0x30A1 <= code <= 0x30F3:  # ァ(0x30A1)〜ン(0x30F3)
+        # カタカナの範囲
+        if 0x30A1 <= code <= 0x30F6:
             res.append(chr(code - 0x60))
-        # 長音記号はそのまま
         else:
             res.append(ch)
-    # 小書き文字を通常文字に寄せる（ぁ→あ 等）
-    rep = str.maketrans({
-        "ぁ":"あ","ぃ":"い","ぅ":"う","ぇ":"え","ぉ":"お",
-        "ゃ":"や","ゅ":"ゆ","ょ":"よ","ゎ":"わ",
-        "ゕ":"か","ゖ":"け"})
-    return "".join(res).translate(rep)
+    return ''.join(res)
 
-# 五十音の行ごとの先頭音
-KANA_ROWS = {
+# 濁点・半濁点を除いた「行判定用」の基底かなに変換
+DAKUTEN_MAP = str.maketrans({
+    "が":"か","ぎ":"き","ぐ":"く","げ":"け","ご":"こ",
+    "ざ":"さ","じ":"し","ず":"す","ぜ":"せ","ぞ":"そ",
+    "だ":"た","ぢ":"ち","づ":"つ","で":"て","ど":"と",
+    "ば":"は","び":"ひ","ぶ":"ぶ","べ":"へ","ぼ":"ほ",
+    "ぱ":"は","ぴ":"ひ","ぷ":"ふ","ぺ":"へ","ぽ":"ほ",
+    "ゔ":"う",
+    # 小書き文字 -> 基本音
+    "ぁ":"あ","ぃ":"い","ぅ":"う","ぇ":"え","ぉ":"お",
+    "ゃ":"や","ゅ":"ゆ","ょ":"よ","っ":"つ",
+})
+
+GOJUON_ROWS = {
     "あ": ["あ","い","う","え","お"],
     "か": ["か","き","く","け","こ"],
     "さ": ["さ","し","す","せ","そ"],
@@ -73,11 +75,38 @@ KANA_ROWS = {
     "わ": ["わ","を","ん"],
 }
 
-# 各ひらがな→行の判定辞書を作成
-_ROW_BY_KANA = {}
-for head, letters in KANA_ROWS.items():
-    for k in letters:
-        _ROW_BY_KANA[k] = head
+PRIMARY_KANA = ["あ","か","さ","た","な","は","ま","や","ら","わ"]
+
+def name_initial_category(name: str):
+    """
+    先頭の可視文字からカテゴリを決める。
+    - ひらがな/カタカナ -> 五十音の行 + 段（例：'か'行 'き'段）
+    - 英数字 -> 'A'〜'Z' or '0-9'
+    - その他（漢字等）は分類不能なので None を返す（かなフィルタでは除外）
+    """
+    if not name:
+        return None, None
+    s = name.strip()
+    if not s:
+        return None, None
+    ch = s[0]
+    # 正規化（半角->全角、カタカナ->ひらがな）
+    ch_norm = katakana_to_hiragana(ch)
+    # ひらがな
+    if "ぁ" <= ch_norm <= "ん":
+        base = ch_norm.translate(DAKUTEN_MAP)
+        # 行
+        for row, cols in GOJUON_ROWS.items():
+            if base[0] in cols:
+                return ("kana", row, base[0])
+        return ("kana", None, base[0])
+    # 英字/数字
+    ch_nfkc = unicodedata.normalize("NFKC", ch)
+    if ch_nfkc.isalpha():
+        return ("alpha", ch_nfkc.upper(), None)
+    if ch_nfkc.isdigit():
+        return ("digit", "0-9", None)
+    return (None, None, None)
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -92,7 +121,7 @@ def load_dataset(path: Path):
     if not pref_cols:
         pref_cols = list(df.columns)
     df["__全文__"] = df[pref_cols].agg("　".join, axis=1)
-    # 表示カラム（No.なしで固定順）
+    # 表示カラム固定
     main_cols = [c for c in ["登録番号","メディア","タイトル","演奏者","作曲者","ジャンル"] if c in df.columns]
     if not main_cols:
         main_cols = list(df.columns)[:6]
@@ -100,22 +129,19 @@ def load_dataset(path: Path):
 
 def load_names(path: Path):
     try:
-        df = pd.read_excel(path, sheet_name=NAME_SHEET, header=None)
-        names = df.iloc[:, 0].dropna().astype(str).tolist()
-        # 重複削除 + 空白除去
-        names = sorted(set([normalize_text(n).strip() for n in names if str(n).strip()]))
-        return names
+        ser = pd.read_excel(path, sheet_name="Name", header=None).iloc[:,0]
+        names = ser.dropna().astype(str).tolist()
     except Exception:
-        return []
+        names = []
+    return names
 
 def keyword_mask(df, q: str):
-    q = normalize_text(q or "")
     if not q.strip():
         return pd.Series([True]*len(df), index=df.index)
     parts = [p for p in re.split(r"\s+", q.strip()) if p]
     mask = pd.Series([True]*len(df), index=df.index)
     for p in parts:
-        mask = mask & df["__全文__"].str.contains(p, case=False, na=False)
+        mask = mask & df["__全文__"].str.contains(re.escape(p), case=False, na=False)
     return mask
 
 # ========= メインアプリ =========
@@ -142,7 +168,7 @@ class App:
         title_frame.pack(side="left")
         tk.Label(title_frame, text="広島市映像文化ライブラリー", font=FONT_TITLE,
                  anchor="w", bg="white", fg="black").pack(anchor="w")
-        tk.Label(title_frame, text="館内閲覧資料　検索データベース　[ベータ版 v4.2]",
+        tk.Label(title_frame, text="館内閲覧資料　検索データベース　[ベータ版 v4.4]",
                  font=FONT_SUB, anchor="w", bg="white", fg="black").pack(anchor="w")
 
         # ==== キーワード検索 ====
@@ -159,15 +185,16 @@ class App:
         btns = tk.Frame(self.root, bg="white")
         btns.pack(anchor="w", padx=40, pady=(8, 12))
 
-        tk.Button(btns, text="ホーム", font=FONT_BTN, width=12,
+        tk.Button(btns, text="ホーム", font=FONT_BTN, width=12, height=1,
                   command=self.reset_home).pack(side="left", padx=8)
-        tk.Button(btns, text="人名検索", font=FONT_BTN, width=12,
-                  command=self.search_people).pack(side="left", padx=8)
-        tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=12,
+
+        tk.Button(btns, text="人名検索", font=FONT_BTN, width=12, height=1,
+                  command=self.open_name_dialog).pack(side="left", padx=8)
+        tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=12, height=1,
                   command=self.open_genre_dialog).pack(side="left", padx=8)
-        tk.Button(btns, text="広島関係", font=FONT_BTN, width=12,
+        tk.Button(btns, text="広島関係", font=FONT_BTN, width=12, height=1,
                   command=self.search_hiroshima).pack(side="left", padx=8)
-        tk.Button(btns, text="詳細検索", font=FONT_BTN, width=12,
+        tk.Button(btns, text="詳細検索", font=FONT_BTN, width=12, height=1,
                   command=self.search_advanced).pack(side="left", padx=8)
 
         # ==== 件数表示 ====
@@ -185,7 +212,7 @@ class App:
         style.configure("Treeview.Heading", font=FONT_MED)
         style.map("Treeview",
                   background=[("selected", "#d0e0ff")],
-                  foreground=[("selected", "black")])
+                  foreground=[("selected", "black")])  # 選択時も黒文字
 
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -198,12 +225,12 @@ class App:
         self.tree.tag_configure("odd", background="#f2f2f2")
         self.tree.tag_configure("even", background="white")
 
-        # 列リサイズ禁止
+        # 列リサイズブロック
         self.tree.bind("<Button-1>", self._block_resize)
         self.tree.bind("<B1-Motion>", self._block_resize)
         self.tree.bind("<ButtonRelease-1>", self._block_resize)
 
-        # ダブルクリックで詳細
+        # ダブルクリックで詳細（完全版の動作へ）
         self.tree.bind("<Double-1>", self.on_row_double_click)
         self.tree.bind("<<TreeviewSelect>>", self.on_row_select_maybe_close_detail)
 
@@ -219,18 +246,18 @@ class App:
         excel_path = Path(__file__).resolve().parent / "all_data.xlsx"
         try:
             self.df_all, self.main_cols = load_dataset(excel_path)
-            self.name_list = load_names(excel_path)
+            self.all_names = load_names(excel_path)  # 人名（Excelの表記をそのまま使う）
         except Exception as e:
             messagebox.showerror("エラー", f"Excel 読み込み失敗: {e}")
             self.root.destroy()
             return
 
-        # Treeview カラム
+        # Treeviewカラム設定
         cols_ids = [f"c{i+1}" for i in range(len(self.main_cols))]
         self.tree.configure(columns=cols_ids)
         for i, c in enumerate(self.main_cols):
             self.tree.heading(cols_ids[i], text=c)
-            if c in ["タイトル", "演奏者", "作曲者"]:
+            if c in ["タイトル","演奏者","作曲者"]:
                 col_width = 360
             else:
                 col_width = 180
@@ -240,18 +267,18 @@ class App:
         self.df_hits = None
         self.page = 1
 
-        # 詳細ウィンドウ管理
+        # 詳細ウィンドウ管理（完全版）
         self.detail_win = None
         self.detail_abs_index = None
         self.detail_labels = {}
         self.prev_btn = None
         self.next_btn = None
 
-    # --- 列リサイズ抑止 ---
+    # --- 列リサイズ抑止用ハンドラ ---
     def _block_resize(self, event):
         region = self.tree.identify_region(event.x, event.y)
         if region == "separator":
-            return "break"
+            return "break"  # セパレーター上のドラッグ/クリックを無効化
 
     # ==== 検索処理 ====
     def do_search(self):
@@ -284,7 +311,7 @@ class App:
         self.table_area.pack(fill="both", expand=True, padx=20, pady=8)
         self.nav.pack(anchor="w", padx=40, pady=4)
 
-    # ==== ホーム ====
+    # ==== ホームに戻る ====
     def reset_home(self):
         self.df_hits = None
         self.page = 1
@@ -292,7 +319,169 @@ class App:
         self.label_count.config(text="")
         self.entry.delete(0, tk.END)
 
-    # ==== ジャンル検索 ====
+    # ==== 人名検索（タブ式：かなが左・デフォルト選択、英字/数字は右） ====
+    def open_name_dialog(self):
+        dlg = tk.Toplevel(self.root, bg="white")
+        dlg.title("人名検索")
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w, h = int(sw * 0.9), int(sh * 0.8)
+        x, y = (sw - w)//2, (sh - h)//2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.focus_force()
+
+        # 上段：メインタブ（かな / 英字・数字）
+        tabbar = tk.Frame(dlg, bg="white")
+        tabbar.pack(fill="x", padx=16, pady=(12,6))
+
+        content = tk.Frame(dlg, bg="white")
+        content.pack(fill="both", expand=True, padx=16, pady=10)
+
+        # かなビュー
+        kana_view = tk.Frame(content, bg="white")
+        # 1) 上段：行ボタン（あ か さ た ...）
+        row_frame = tk.Frame(kana_view, bg="white")
+        row_frame.pack(anchor="w", pady=(0,6))
+        row_btns = {}
+        for r in PRIMARY_KANA:
+            b = tk.Button(row_frame, text=r, font=FONT_BTN, width=4,
+                          command=lambda r=r: show_kana_row(r))
+            b.pack(side="left", padx=4)
+            row_btns[r] = b
+
+        # 2) 中段：段ボタン（例：か行→ か き く け こ）
+        col_frame = tk.Frame(kana_view, bg="white")
+        col_frame.pack(anchor="w", pady=(0,8))
+
+        # 3) 下段：人名リスト + スクロールバー（可視）
+        list_frame = tk.Frame(kana_view, bg="white")
+        list_frame.pack(fill="both", expand=True)
+        sb = ttk.Scrollbar(list_frame, orient="vertical")
+        name_list = tk.Listbox(list_frame, font=FONT_MED, yscrollcommand=sb.set)
+        sb.config(command=name_list.yview)
+        name_list.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        # 英字・数字ビュー
+        alpha_view = tk.Frame(content, bg="white")
+        # 上段：A-Z + 0-9 ボタン
+        alpha_row = tk.Frame(alpha_view, bg="white")
+        alpha_row.pack(anchor="w", pady=(0,8))
+        btn_09 = tk.Button(alpha_row, text="0-9", font=FONT_BTN, width=4,
+                           command=lambda: populate_alpha("0-9"))
+        btn_09.pack(side="left", padx=4)
+        for ch in [chr(ord('A')+i) for i in range(26)]:
+            tk.Button(alpha_row, text=ch, font=FONT_BTN, width=4,
+                      command=lambda ch=ch: populate_alpha(ch)).pack(side="left", padx=2)
+
+        # 人名リスト + スクロール（英字用も同様に見える）
+        alpha_list_frame = tk.Frame(alpha_view, bg="white")
+        alpha_list_frame.pack(fill="both", expand=True)
+        alpha_sb = ttk.Scrollbar(alpha_list_frame, orient="vertical")
+        alpha_list = tk.Listbox(alpha_list_frame, font=FONT_MED, yscrollcommand=alpha_sb.set)
+        alpha_sb.config(command=alpha_list.yview)
+        alpha_list.pack(side="left", fill="both", expand=True)
+        alpha_sb.pack(side="right", fill="y")
+
+        # ---- データ供給関数 ----
+        def filter_names_by_kana_row(row_key: str, syllable: str=None):
+            # Excel表記そのままの人名から、先頭のかな行/段でフィルタ
+            res = []
+            for nm in self.all_names:
+                cat, row, col = name_initial_category(nm)
+                if cat != "kana":
+                    continue
+                if row != row_key:
+                    continue
+                if syllable is not None and col != syllable:
+                    continue
+                res.append(nm)
+            return sorted(set(res))
+
+        def show_kana_row(row_key: str):
+            # 行ボタンの強調
+            for r, btn in row_btns.items():
+                btn.configure(relief="raised")
+            row_btns[row_key].configure(relief="sunken")
+            # 段ボタンの再生成
+            for w in col_frame.winfo_children():
+                w.destroy()
+            for syl in GOJUON_ROWS.get(row_key, []):
+                tk.Button(col_frame, text=syl, font=FONT_BTN, width=4,
+                          command=lambda syl=syl: populate_kana(row_key, syl)).pack(side="left", padx=2)
+            # 行選択時は行の全段を表示
+            populate_kana(row_key, None)
+
+        def populate_kana(row_key: str, syllable: str):
+            name_list.delete(0, tk.END)
+            items = filter_names_by_kana_row(row_key, syllable)
+            for nm in items:
+                name_list.insert(tk.END, nm)
+
+        def populate_alpha(symbol: str):
+            alpha_list.delete(0, tk.END)
+            res = []
+            for nm in self.all_names:
+                s = nm.strip()
+                if not s:
+                    continue
+                ch = unicodedata.normalize("NFKC", s[0])
+                if symbol == "0-9":
+                    ok = ch.isdigit()
+                else:
+                    ok = ch.isalpha() and ch.upper() == symbol
+                if ok:
+                    res.append(nm)
+            for nm in sorted(set(res), key=lambda x: x.upper()):
+                alpha_list.insert(tk.END, nm)
+
+        # ダブルクリックで検索
+        def do_search_selected_from_list(lst: tk.Listbox):
+            sel = lst.curselection()
+            if not sel:
+                return
+            nm = lst.get(sel[0])  # Excel表記をそのまま使う
+            mask = self.df_all["__全文__"].str.contains(re.escape(nm), case=False, na=False)
+            self.df_hits = self.df_all[mask].copy()
+            self.page = 1
+            self.update_table()
+            self.close_detail_if_exists()
+            self.label_count.config(text=f"人名検索: {nm} 件数 {len(self.df_hits)}")
+            try:
+                dlg.grab_release()
+            except Exception:
+                pass
+            dlg.destroy()
+
+        name_list.bind("<Double-1>", lambda e: do_search_selected_from_list(name_list))
+        alpha_list.bind("<Double-1>", lambda e: do_search_selected_from_list(alpha_list))
+
+        # ---- タブ切替（かなを左・デフォルト選択） ----
+        def show_kana_view():
+            btn_kana.configure(relief="sunken")
+            btn_alpha.configure(relief="raised")
+            alpha_view.pack_forget()
+            kana_view.pack(fill="both", expand=True)
+        def show_alpha_view():
+            btn_alpha.configure(relief="sunken")
+            btn_kana.configure(relief="raised")
+            kana_view.pack_forget()
+            alpha_view.pack(fill="both", expand=True)
+
+        btn_kana  = tk.Button(tabbar, text="かな", font=FONT_BTN, width=10, command=show_kana_view)
+        btn_alpha = tk.Button(tabbar, text="英字/数字", font=FONT_BTN, width=10, command=show_alpha_view)
+        btn_kana.pack(side="left", padx=(0,8))
+        btn_alpha.pack(side="left", padx=(0,8))
+
+        # デフォルトで「かな」を開く
+        show_kana_view()
+        # 初期行は「あ」
+        show_kana_row("あ")
+        # 英字側の初期はA一覧
+        populate_alpha("A")
+
+    # ==== ジャンル検索（ダイアログは簡易のまま） ====
     def open_genre_dialog(self):
         groups = {
             "クラシック": ["交響曲","管弦楽曲","協奏曲","室内楽曲","独奏曲","歌劇","声楽曲","宗教曲","現代音楽","その他"],
@@ -338,7 +527,7 @@ class App:
             if dlg and dlg.winfo_exists():
                 dlg.destroy()
             return
-        mask = self.df_all["ジャンル"].str.contains(genre, na=False)
+        mask = self.df_all["ジャンル"].str.contains(re.escape(genre), na=False)
         self.df_hits = self.df_all[mask].copy()
         self.page = 1
         self.update_table()
@@ -347,171 +536,22 @@ class App:
         if dlg and dlg.winfo_exists():
             dlg.destroy()
 
-    # ==== 広島関係 ====
+    # ==== 広島検索（多表記 + 地名/人名も全文一致で拾う） ====
     def search_hiroshima(self):
-        patterns = [
-            r"広島", r"ヒロシマ", r"ﾋﾛｼﾏ", r"ひろしま", r"廣島",
-            r"hiroshima", r"HIROSHIMA"
+        keywords = [
+            "広島","ひろしま","ﾋﾛｼﾏ","ヒロシマ","廣島",
+            "hiroshima","HIROSHIMA",
         ]
-        rx = re.compile("|".join(patterns), re.IGNORECASE)
-        mask = self.df_all["__全文__"].str.contains(rx, na=False)
+        mask = pd.Series([False]*len(self.df_all), index=self.df_all.index)
+        for kw in keywords:
+            mask |= self.df_all["__全文__"].str.contains(re.escape(kw), case=False, na=False)
         self.df_hits = self.df_all[mask].copy()
         self.page = 1
         self.update_table()
         self.close_detail_if_exists()
-        self.label_count.config(text=f"広島関係の検索　件数 {len(self.df_hits)}")
+        self.label_count.config(text=f"広島関連検索 件数 {len(self.df_hits)}")
 
-    # ==== 人名検索 ====
-    def search_people(self):
-        if not self.name_list:
-            messagebox.showwarning("警告", f"Excel の『{NAME_SHEET}』シートに人名が見つかりません。")
-            return
-
-        dlg = tk.Toplevel(self.root, bg="white")
-        dlg.title("人名検索")
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        w, h = int(sw * 0.9), int(sh * 0.75)
-        x, y = (sw - w)//2, (sh - h)//2
-        dlg.geometry(f"{w}x{h}+{x}+{y}")
-        dlg.grab_set()
-        dlg.focus_force()
-
-        # 上部：分類タブ（英字 / かな）
-        tabs = ttk.Notebook(dlg)
-        tabs.pack(fill="both", expand=True, padx=12, pady=12)
-
-        # ---- 英字タブ ----
-        frame_alpha = tk.Frame(tabs, bg="white")
-        tabs.add(frame_alpha, text="英字/数字")
-
-        # ボタン群
-        btn_row = tk.Frame(frame_alpha, bg="white")
-        btn_row.pack(anchor="w", pady=(8,6))
-        for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-            tk.Button(btn_row, text=ch, font=FONT_BTN, width=3,
-                      command=lambda ch=ch: self._populate_name_list_alpha(ch))\
-                .pack(side="left", padx=2, pady=2)
-        tk.Button(btn_row, text="その他(0-9)", font=FONT_BTN, width=10,
-                  command=lambda: self._populate_name_list_alpha("OTHER"))\
-            .pack(side="left", padx=8, pady=2)
-
-        # リスト
-        self.alpha_listbox = tk.Listbox(frame_alpha, font=FONT_MED, height=20, activestyle="none")
-        self.alpha_listbox.pack(fill="both", expand=True, padx=8, pady=8)
-        self.alpha_listbox.bind("<Double-Button-1>", lambda e: self._name_selected_from_list(self.alpha_listbox, dlg))
-
-        # ---- かなタブ ----
-        frame_kana = tk.Frame(tabs, bg="white")
-        tabs.add(frame_kana, text="かな")
-
-        # 上段：行ボタン（あ か さ ...）
-        row_bar = tk.Frame(frame_kana, bg="white")
-        row_bar.pack(anchor="w", pady=(8,4))
-        self.kana_current_row = None
-        self.kana_current_letter = None
-
-        def on_row_select(head):
-            self.kana_current_row = head
-            # サブ行(母音)ボタンを更新
-            for w in sub_bar.winfo_children():
-                w.destroy()
-            for letter in KANA_ROWS.get(head, []):
-                tk.Button(sub_bar, text=letter, font=FONT_BTN, width=3,
-                          command=lambda letter=letter: on_letter_select(letter))\
-                    .pack(side="left", padx=2, pady=2)
-
-            # 行選択時はまずその行の全てを表示
-            self._populate_name_list_kana_row(head)
-
-        def on_letter_select(letter):
-            self.kana_current_letter = letter
-            self._populate_name_list_kana_letter(letter)
-
-        for head in ["あ","か","さ","た","な","は","ま","や","ら","わ"]:
-            tk.Button(row_bar, text=head, font=FONT_BTN, width=3,
-                      command=lambda head=head: on_row_select(head))\
-                .pack(side="left", padx=2, pady=2)
-
-        # 下段：サブ行（あ い う え お 等）
-        sub_bar = tk.Frame(frame_kana, bg="white")
-        sub_bar.pack(anchor="w", pady=(0,6))
-
-        # リスト
-        self.kana_listbox = tk.Listbox(frame_kana, font=FONT_MED, height=20, activestyle="none")
-        self.kana_listbox.pack(fill="both", expand=True, padx=8, pady=8)
-        self.kana_listbox.bind("<Double-Button-1>", lambda e: self._name_selected_from_list(self.kana_listbox, dlg))
-
-        # 初期表示：あ行
-        on_row_select("あ")
-
-        # 閉じるボタン
-        tk.Button(dlg, text="閉じる", font=FONT_BTN, width=10, command=dlg.destroy)\
-            .pack(pady=(0,10))
-
-    # ---- 人名リストの充填処理（英字） ----
-    def _populate_name_list_alpha(self, head: str):
-        names = []
-        for n in self.name_list:
-            if not n:
-                continue
-            first = normalize_text(n)[0].upper()
-            if head == "OTHER":
-                if first.isdigit():
-                    names.append(n)
-            else:
-                if first == head:
-                    names.append(n)
-        names = sorted(set(names))
-        self._fill_listbox(self.alpha_listbox, names)
-
-    # ---- 人名リストの充填処理（かな・行指定） ----
-    def _populate_name_list_kana_row(self, head: str):
-        names = []
-        for n in self.name_list:
-            if not n:
-                continue
-            h = to_hiragana(n)
-            if not h:
-                continue
-            ch = h[0]
-            row = _ROW_BY_KANA.get(ch)
-            if row == head:
-                names.append(n)
-        names = sorted(set(names))
-        self._fill_listbox(self.kana_listbox, names)
-
-    # ---- 人名リストの充填処理（かな・仮名指定） ----
-    def _populate_name_list_kana_letter(self, letter: str):
-        names = []
-        for n in self.name_list:
-            if not n:
-                continue
-            h = to_hiragana(n)
-            if not h:
-                continue
-            if h.startswith(letter):
-                names.append(n)
-        names = sorted(set(names))
-        self._fill_listbox(self.kana_listbox, names)
-
-    def _fill_listbox(self, lb: tk.Listbox, items):
-        lb.delete(0, tk.END)
-        for it in items:
-            lb.insert(tk.END, it)
-
-    def _name_selected_from_list(self, lb: tk.Listbox, dlg: tk.Toplevel):
-        sel = lb.curselection()
-        if not sel:
-            return
-        name = lb.get(sel[0])
-        # メイン画面でその人名で全文検索
-        self.entry.delete(0, tk.END)
-        self.entry.insert(0, name)
-        self.do_search()
-        if dlg and dlg.winfo_exists():
-            dlg.destroy()
-
-    # ==== 詳細表示 ====
+    # ==== 詳細表示（完全版）====
     def on_row_double_click(self, event):
         if self.df_hits is None or self.df_hits.empty:
             return
@@ -626,7 +666,7 @@ class App:
         self.prev_btn = None
         self.next_btn = None
 
-    # ==== 詳細ナビ ====
+    # ==== ナビ（前/次ボタンでリストも連動しページ送り） ====
     def nav_detail(self, delta: int):
         if self.detail_abs_index is None or self.df_hits is None:
             return
@@ -638,7 +678,7 @@ class App:
         row = self.df_hits.iloc[new_idx]
         self.update_detail_labels(row)
 
-        # ページ切替
+        # ページ切替判定
         new_page = (new_idx // PAGE_SIZE) + 1
         if new_page != self.page:
             self.page = new_page
@@ -666,11 +706,13 @@ class App:
                 lbl.config(text=str(row[c]))
 
     def update_detail_nav_buttons(self):
+        # prev
         if self.prev_btn:
             if self.detail_abs_index is None or self.detail_abs_index <= 0:
                 self.prev_btn.configure(state="disabled")
             else:
                 self.prev_btn.configure(state="normal")
+        # next
         if self.next_btn:
             if self.df_hits is None or self.detail_abs_index is None or self.detail_abs_index >= len(self.df_hits)-1:
                 self.next_btn.configure(state="disabled")
@@ -702,6 +744,7 @@ class App:
         self.update_table()
 
     # ==== プレースホルダ ====
+    def search_people(self): messagebox.showinfo("人名検索", "後で実装予定です。")
     def search_advanced(self): messagebox.showinfo("詳細検索", "後で実装予定です。")
 
 # ========= 起動 =========
