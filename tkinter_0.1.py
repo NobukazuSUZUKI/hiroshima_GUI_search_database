@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
-from pathlib import Path
 import pandas as pd
 import re
-
-# 画像読み込み（ロゴ用）
+from pathlib import Path
 try:
     from PIL import Image, ImageTk
     PIL_OK = True
@@ -16,13 +13,14 @@ except Exception:
     PIL_OK = False
 
 SHEET_NAME = "Sheet"
-PAGE_SIZE  = 20
+PAGE_SIZE  = 10   # 最大10行表示
 FONT_TITLE = ("Meiryo", 28, "bold")
 FONT_SUB   = ("Meiryo", 18)
 FONT_LARGE = ("Meiryo", 20)
 FONT_MED   = ("Meiryo", 14)
-FONT_BTN   = ("Meiryo", 20)
+FONT_BTN   = ("Meiryo", 16)
 
+# ===== データ読み込み =====
 def load_dataset(path: Path):
     df = pd.read_excel(path, sheet_name=SHEET_NAME)
     for c in df.columns:
@@ -49,6 +47,7 @@ def keyword_mask(df, q: str):
         mask = mask & df["__全文__"].str.contains(p, case=False, na=False)
     return mask
 
+# ===== 詳細表示 =====
 def show_detail(row: pd.Series, parent):
     win = tk.Toplevel(parent)
     win.title("詳細表示")
@@ -61,32 +60,24 @@ def show_detail(row: pd.Series, parent):
         txt.config(state="disabled")
         txt.pack(fill="x", pady=(0,6))
 
+# ===== メインアプリ =====
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Audio Search — tkinter")
-
-        # ====== 疑似フルスクリーン（IMEの未確定文字が見えるようにする）======
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
         self.root.geometry(f"{sw}x{sh}+0+0")
         self.root.resizable(False, False)
-        if sys.platform.startswith("win"):
-            # Windows は zoomed で最大化
-            try:
-                self.root.state('zoomed')
-            except Exception:
-                pass
-        # Mac では -fullscreen を使わない（IME 未確定文字が表示されなくなるため）
 
-        # ===== 左上：ロゴ＋タイトル =====
+        # ==== ヘッダー ====
         header = tk.Frame(self.root)
         header.pack(anchor="w", padx=20, pady=(20,10))
 
         logo_path = Path(__file__).resolve().parent / "logo.png"
         if PIL_OK and logo_path.exists():
             try:
-                img = Image.open(logo_path).resize((120, 120))
+                img = Image.open(logo_path).resize((100, 100))
                 self.logo_img = ImageTk.PhotoImage(img)
                 tk.Label(header, image=self.logo_img).pack(side="left", padx=(0,20))
             except Exception:
@@ -97,52 +88,54 @@ class App:
         tk.Label(title_frame, text="広島市映像文化ライブラリー", font=FONT_TITLE, anchor="w").pack(anchor="w")
         tk.Label(title_frame, text="所蔵資料検索データベース（ベータ版）", font=FONT_SUB, anchor="w").pack(anchor="w")
 
-        # ===== キーワード検索（中央上部・大きく） =====
+        # ==== キーワード検索 ====
         search_frame = tk.Frame(self.root)
         search_frame.pack(pady=(20, 10))
         tk.Label(search_frame, text="キーワード検索", font=FONT_LARGE).pack(anchor="center")
-
         entry_row = tk.Frame(search_frame)
         entry_row.pack(pady=10)
-
-        # Entry は IME 即時表示のためにも十分な高さ・フォントで
         self.entry = tk.Entry(entry_row, width=40, font=FONT_LARGE)
         self.entry.pack(side="left", padx=(0,12), ipady=12)
-        self.entry.focus_force()                 # フォーカスを確実に当てる
-        self.entry.icursor("end")               # キャレット位置を末尾へ
-
         btn_search = tk.Button(entry_row, text="検索", font=FONT_LARGE, command=self.do_search)
         btn_search.pack(side="left")
         self.entry.bind("<Return>", lambda e: self.do_search())
 
-        # ===== 大きめボタン（左寄せ） =====
+        # ==== ボタン群（少し小さめ） ====
         btns = tk.Frame(self.root)
         btns.pack(anchor="w", padx=50, pady=(10, 20))
-        tk.Button(btns, text="人名検索", font=FONT_BTN, width=20, height=3,
-                  command=self.search_people).pack(side="left", padx=15)
-        tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=20, height=3,
-                  command=self.search_genre).pack(side="left", padx=15)
-        tk.Button(btns, text="詳細検索", font=FONT_BTN, width=20, height=3,
-                  command=self.search_advanced).pack(side="left", padx=15)
+        tk.Button(btns, text="人名検索", font=FONT_BTN, width=14, height=2,
+                  command=self.search_people).pack(side="left", padx=10)
+        tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=14, height=2,
+                  command=self.search_genre).pack(side="left", padx=10)
+        tk.Button(btns, text="詳細検索", font=FONT_BTN, width=14, height=2,
+                  command=self.search_advanced).pack(side="left", padx=10)
 
-        # ===== 件数表示 =====
+        # ==== 件数表示 ====
         self.label_count = tk.Label(self.root, text="", font=FONT_MED)
         self.label_count.pack(anchor="w", padx=50)
 
-        # ===== 検索結果（初回は非表示） =====
+        # ==== 検索結果テーブル（最初は非表示） ====
         self.table_area = tk.Frame(self.root)
-        self.tree = ttk.Treeview(self.table_area, show="headings")
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=28, font=FONT_MED)
+        style.configure("Treeview.Heading", font=FONT_MED)
+        style.map("Treeview", background=[("selected", "#d0e0ff")])
+        self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.bind("<Double-1>", self.on_row_double_click)
         scroll = ttk.Scrollbar(self.table_area, orient="vertical", command=self.tree.yview)
         scroll.pack(side="right", fill="y")
         self.tree.configure(yscroll=scroll.set)
 
+        # ==== ページ操作 ====
         self.nav = tk.Frame(self.root)
-        tk.Button(self.nav, text="前のページ", font=FONT_MED, command=self.prev_page).pack(side="left", padx=8)
-        tk.Button(self.nav, text="次のページ", font=FONT_MED, command=self.next_page).pack(side="left", padx=8)
+        for text, cmd in [("先頭", self.to_first), ("前ページ", self.prev_page),
+                          ("次ページ", self.next_page), ("最後", self.to_last)]:
+            b = tk.Button(self.nav, text=text, font=FONT_MED, command=cmd,
+                          relief="groove", borderwidth=2, width=8)
+            b.pack(side="left", padx=8, pady=10)
 
-        # ===== データ読み込み =====
+        # ==== データ ====
         excel_path = Path(__file__).resolve().parent / "all_data.xlsx"
         try:
             self.df_all, self.main_cols = load_dataset(excel_path)
@@ -160,6 +153,7 @@ class App:
         self.df_hits = None
         self.page = 1
 
+    # ==== 検索処理 ====
     def do_search(self):
         q = self.entry.get()
         mask = keyword_mask(self.df_all, q)
@@ -168,7 +162,7 @@ class App:
         self.update_table()
 
     def update_table(self):
-        # いったんクリア
+        # クリア
         for r in self.tree.get_children():
             self.tree.delete(r)
 
@@ -182,14 +176,20 @@ class App:
         start = (self.page - 1) * PAGE_SIZE
         end   = min(start + PAGE_SIZE, total)
         view = self.df_hits.iloc[start:end]
-        for _, row in view.iterrows():
-            self.tree.insert("", "end", values=[row.get(c, "") for c in self.main_cols])
+
+        # ✅ 日本語列名でも確実に取り出す
+        rows = view[self.main_cols].astype(str).values.tolist()
+        for i, vals in enumerate(rows):
+            tag = "odd" if i % 2 else "even"
+            self.tree.insert("", "end", values=vals, tags=(tag,))
+        self.tree.tag_configure("odd", background="#f2f2f2")
+        self.tree.tag_configure("even", background="white")
+
         pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
         self.label_count.config(text=f"ヒット件数: {total}   ページ {self.page}/{pages}")
 
-        # 初回表示＆以降更新
         self.table_area.pack(fill="both", expand=True, padx=20, pady=10)
-        self.nav.pack(pady=15)
+        self.nav.pack(anchor="w", padx=50, pady=5)
 
     def on_row_double_click(self, event):
         if self.df_hits is None or self.df_hits.empty:
@@ -197,27 +197,35 @@ class App:
         sel = self.tree.selection()
         if not sel:
             return
-        idx_in_page = self.tree.index(sel)
+        item_id = sel[0]
+        idx_in_page = self.tree.index(item_id)
         start = (self.page - 1) * PAGE_SIZE
         row = self.df_hits.iloc[start + idx_in_page]
         show_detail(row, self.root)
 
     def prev_page(self):
-        if self.df_hits is None:
-            return
+        if self.df_hits is None: return
         if self.page > 1:
             self.page -= 1
             self.update_table()
 
     def next_page(self):
-        if self.df_hits is None:
-            return
+        if self.df_hits is None: return
         maxp = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         if self.page < maxp:
             self.page += 1
             self.update_table()
 
-    # プレースホルダ
+    def to_first(self):
+        if self.df_hits is None: return
+        self.page = 1
+        self.update_table()
+
+    def to_last(self):
+        if self.df_hits is None: return
+        self.page = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
+        self.update_table()
+
     def search_people(self):
         messagebox.showinfo("人名検索", "後で実装予定です。")
 
@@ -227,6 +235,7 @@ class App:
     def search_advanced(self):
         messagebox.showinfo("詳細検索", "後で実装予定です。")
 
+# ===== 起動 =====
 def main():
     root = tk.Tk()
     App(root)
