@@ -29,7 +29,24 @@ DETAIL_BTN_HEIGHT = 1
 # 詳細ウィンドウの余白設定
 DETAIL_MARGIN_TOP = 40
 DETAIL_MARGIN_BOTTOM = 80
-DETAIL_MARGIN_RIGHT = 40  # 右余白追加
+DETAIL_MARGIN_RIGHT = 40  # 右余白
+
+# ジャンル定義（ご指定の13種）
+GENRES = [
+    "交響曲",
+    "管弦楽曲",
+    "協奏曲",
+    "室内楽曲",
+    "独奏曲",
+    "歌劇",
+    "声楽曲",
+    "宗教音楽",
+    "現代音楽・電子音楽",
+    "コレクション他",
+    "ジャズ",
+    "邦楽・日本民謡",
+    "ポピュラー",
+]
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -93,13 +110,15 @@ class App:
         self.entry.pack(side="left", padx=(0,10), ipady=8)
         self.entry.bind("<Return>", lambda e: self.do_search())
 
-        # ==== ボタン群 ====
+        # ==== 機能ボタン ====
         btns = tk.Frame(self.root)
         btns.pack(anchor="w", padx=40, pady=(8, 12))
+
         tk.Button(btns, text="人名検索", font=FONT_BTN, width=12, height=1,
                   command=self.search_people).pack(side="left", padx=8)
+        # ← ここを「ジャンル検索」モーダル起動に変更
         tk.Button(btns, text="ジャンル検索", font=FONT_BTN, width=12, height=1,
-                  command=self.search_genre).pack(side="left", padx=8)
+                  command=self.open_genre_dialog).pack(side="left", padx=8)
         tk.Button(btns, text="広島関係", font=FONT_BTN, width=12, height=1,
                   command=self.search_hiroshima).pack(side="left", padx=8)
         tk.Button(btns, text="詳細検索", font=FONT_BTN, width=12, height=1,
@@ -150,6 +169,7 @@ class App:
         self.df_hits = None
         self.page = 1
 
+        # 詳細ウィンドウ管理
         self.detail_win = None
         self.detail_abs_index = None
         self.detail_labels = {}
@@ -204,6 +224,7 @@ class App:
         self.create_detail_window(self.df_hits.iloc[abs_idx], abs_idx)
 
     def on_row_select_maybe_close_detail(self, event):
+        # 詳細が開いている間は閉じない
         if self.detail_win and self.detail_win.winfo_exists():
             return
         self.close_detail_if_exists()
@@ -231,8 +252,8 @@ class App:
 
         rootf = tk.Frame(win)
         rootf.pack(fill="both", expand=True)
-        rootf.rowconfigure(0, weight=1)
-        rootf.rowconfigure(1, weight=0)
+        rootf.rowconfigure(0, weight=1)  # 本文スクロール
+        rootf.rowconfigure(1, weight=0)  # ボタンバー固定
         rootf.columnconfigure(0, weight=1)
 
         # 本文（スクロール）
@@ -364,9 +385,66 @@ class App:
         self.page = (len(self.df_hits) + PAGE_SIZE - 1) // PAGE_SIZE
         self.update_table()
 
+    # ==== ジャンル検索モーダル ====
+    def open_genre_dialog(self):
+        if "ジャンル" not in self.df_all.columns:
+            messagebox.showwarning("警告", "Excel に『ジャンル』列が見つかりません。")
+            return
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("ジャンル検索")
+        # 適度なサイズ（600x520）で中央付近
+        w, h = 600, 520
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        x, y = (sw - w)//2, (sh - h)//3
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.resizable(True, True)
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.focus_force()
+
+        # 上部に案内
+        tk.Label(dlg, text="ジャンルを選択してください", font=FONT_LARGE).pack(pady=(12, 6))
+
+        # スクロール付きボタンエリア
+        host = tk.Frame(dlg)
+        host.pack(fill="both", expand=True, padx=12, pady=12)
+
+        canvas = tk.Canvas(host, highlightthickness=0)
+        vbar = ttk.Scrollbar(host, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vbar.pack(side="right", fill="y")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(inner_id, width=e.width))
+
+        # ボタンをグリッド配置（4列）
+        cols = 4
+        for i, g in enumerate(GENRES):
+            b = tk.Button(inner, text=g, font=FONT_BTN, width=16, height=1,
+                          command=lambda g=g, dlg=dlg: self.search_by_genre(g, dlg))
+            r, c = divmod(i, cols)
+            b.grid(row=r, column=c, padx=6, pady=6, sticky="ew")
+
+        # 閉じる
+        tk.Button(dlg, text="閉じる", font=FONT_BTN, width=10, command=dlg.destroy)\
+            .pack(pady=(0, 10))
+
+    def search_by_genre(self, genre: str, dlg: tk.Toplevel = None):
+        # 「ジャンル」列の部分一致でフィルタ
+        mask = self.df_all["ジャンル"].str.contains(genre, na=False)
+        self.df_hits = self.df_all[mask].copy()
+        self.page = 1
+        self.update_table()
+        self.close_detail_if_exists()
+        self.label_count.config(text=f"ジャンル検索: {genre}　件数 {len(self.df_hits)}")
+        if dlg and dlg.winfo_exists():
+            dlg.destroy()
+
     # ==== プレースホルダ ====
     def search_people(self): messagebox.showinfo("人名検索", "後で実装予定です。")
-    def search_genre(self): messagebox.showinfo("ジャンル検索", "後で実装予定です。")
     def search_hiroshima(self): messagebox.showinfo("広島関係", "後で実装予定です。")
     def search_advanced(self): messagebox.showinfo("詳細検索", "後で実装予定です。")
 
