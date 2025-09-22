@@ -172,9 +172,15 @@ class App:
         cols_ids = [f"c{i+1}" for i in range(len(self.main_cols))]
         self.tree.configure(columns=cols_ids)
         for i, c in enumerate(self.main_cols):
-            # stretch=False で自動伸縮を抑止（リサイズ操作も合わせて抑止に寄与）
             self.tree.heading(cols_ids[i], text=c)
-            self.tree.column(cols_ids[i], width=180, anchor="w", stretch=False)
+
+            if c in ["タイトル", "演奏者", "作曲者"]:
+                col_width = 360   # ✅ 180 の 2倍
+            else:
+                col_width = 180   # それ以外は標準
+
+            self.tree.column(cols_ids[i], width=col_width, anchor="w", stretch=False)
+
 
         # 状態
         self.df_hits = None
