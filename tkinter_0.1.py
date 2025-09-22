@@ -26,9 +26,10 @@ DETAIL_BTN_FONT   = ("Meiryo", 12)
 DETAIL_BTN_WIDTH  = 10
 DETAIL_BTN_HEIGHT = 1
 
-# 詳細ウィンドウの上下余白（ピクセル）
+# 詳細ウィンドウの余白設定
 DETAIL_MARGIN_TOP = 40
 DETAIL_MARGIN_BOTTOM = 80
+DETAIL_MARGIN_RIGHT = 40  # 右余白追加
 
 # ========= データ読み込み =========
 def load_dataset(path: Path):
@@ -62,8 +63,7 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Audio Search — tkinter")
-        # 起動時に最大化
-        self.root.state("zoomed")
+        self.root.state("zoomed")  # 起動時に最大化
 
         # ==== ヘッダー ====
         header = tk.Frame(self.root)
@@ -118,8 +118,6 @@ class App:
         self.tree = ttk.Treeview(self.table_area, show="headings", height=PAGE_SIZE)
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.bind("<Double-1>", self.on_row_double_click)
-
-        # シングル選択で詳細を閉じる（※詳細が開いている時は閉じないよう後述で制御）
         self.tree.bind("<<TreeviewSelect>>", self.on_row_select_maybe_close_detail)
 
         scroll = ttk.Scrollbar(self.table_area, orient="vertical", command=self.tree.yview)
@@ -152,7 +150,6 @@ class App:
         self.df_hits = None
         self.page = 1
 
-        # 詳細ウィンドウ管理
         self.detail_win = None
         self.detail_abs_index = None
         self.detail_labels = {}
@@ -206,7 +203,6 @@ class App:
         self.close_detail_if_exists()
         self.create_detail_window(self.df_hits.iloc[abs_idx], abs_idx)
 
-    # ==== シングル選択時：詳細が開いている間は閉じない ====
     def on_row_select_maybe_close_detail(self, event):
         if self.detail_win and self.detail_win.winfo_exists():
             return
@@ -219,9 +215,9 @@ class App:
 
         screen_h = self.root.winfo_screenheight()
         screen_w = self.root.winfo_screenwidth()
-        win_w = int(screen_w * 0.5)   # 右半分
-        win_h = screen_h - (DETAIL_MARGIN_TOP + DETAIL_MARGIN_BOTTOM)  # 上下に余白
-        x = screen_w - win_w
+        win_w = int(screen_w * 0.5) - DETAIL_MARGIN_RIGHT  # 右余白あり
+        win_h = screen_h - (DETAIL_MARGIN_TOP + DETAIL_MARGIN_BOTTOM)
+        x = screen_w - win_w - DETAIL_MARGIN_RIGHT
         y = DETAIL_MARGIN_TOP
 
         win = tk.Toplevel(self.root)
@@ -229,19 +225,17 @@ class App:
         win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         win.resizable(True, True)
 
-        # ▼▼ ここがポイント：詳細ウィンドウをモーダル化してキー入力を奪う ▼▼
-        win.transient(self.root)   # オーナーの子ウィンドウとして扱う
-        win.grab_set()             # このウィンドウにグラブ（他へイベントを渡さない）
-        win.focus_force()          # フォーカスを強制
-        # ▲▲ これにより Treeview が矢印キー等を受けず、勝手に選択が変わらない ▲▲
+        win.transient(self.root)
+        win.grab_set()
+        win.focus_force()
 
         rootf = tk.Frame(win)
         rootf.pack(fill="both", expand=True)
-        rootf.rowconfigure(0, weight=1)  # 本文スクロール
-        rootf.rowconfigure(1, weight=0)  # ボタンバー固定
+        rootf.rowconfigure(0, weight=1)
+        rootf.rowconfigure(1, weight=0)
         rootf.columnconfigure(0, weight=1)
 
-        # 本文（スクロール可能）
+        # 本文（スクロール）
         scroll_frame = tk.Frame(rootf)
         scroll_frame.grid(row=0, column=0, sticky="nsew")
         canvas = tk.Canvas(scroll_frame, highlightthickness=0)
@@ -272,7 +266,7 @@ class App:
             val.pack(fill="x", padx=pad)
             self.detail_labels[c] = val
 
-        # ボタンバー（常に下に固定）
+        # ボタンバー
         btnbar = tk.Frame(rootf)
         btnbar.grid(row=1, column=0, sticky="ew")
         btnbar.columnconfigure(2, weight=1)
@@ -296,7 +290,6 @@ class App:
     def close_detail_if_exists(self):
         try:
             if self.detail_win is not None and self.detail_win.winfo_exists():
-                # grab を解除してから閉じる（モーダル解除）
                 try:
                     self.detail_win.grab_release()
                 except Exception:
@@ -310,16 +303,31 @@ class App:
         self.prev_btn = None
         self.next_btn = None
 
-    # ==== ナビ（ラベル更新のみ） ====
+    # ==== ナビ（前/次ボタンでリストも連動しページ送り） ====
     def nav_detail(self, delta: int):
         if self.detail_abs_index is None or self.df_hits is None:
             return
         new_idx = self.detail_abs_index + delta
         if new_idx < 0 or new_idx >= len(self.df_hits):
             return
+
         self.detail_abs_index = new_idx
         row = self.df_hits.iloc[new_idx]
         self.update_detail_labels(row)
+
+        # ページ切替判定
+        new_page = (new_idx // PAGE_SIZE) + 1
+        if new_page != self.page:
+            self.page = new_page
+            self.update_table()
+
+        # Treeview選択同期
+        rel_idx = new_idx - (self.page - 1) * PAGE_SIZE
+        items = self.tree.get_children()
+        if 0 <= rel_idx < len(items):
+            item_id = items[rel_idx]
+            self.tree.selection_set(item_id)
+            self.tree.see(item_id)
 
     def update_detail_labels(self, row: pd.Series):
         if not self.detail_labels:
