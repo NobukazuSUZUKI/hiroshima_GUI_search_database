@@ -813,24 +813,42 @@ class App:
             val.pack(fill="x", padx=pad)
             self.detail_labels[c] = val
 
-        # ボタンバー（固定）
+        # ボタンバー（固定）— 左：印刷 / 中央：前・次 / 右：閉じる
         btnbar = tk.Frame(rootf, bg="white")
         btnbar.grid(row=1, column=0, sticky="ew")
+        # 左・右を伸ばして中央を真ん中に
+        btnbar.columnconfigure(0, weight=1)
+        btnbar.columnconfigure(1, weight=0)
         btnbar.columnconfigure(2, weight=1)
 
-        self.prev_btn = tk.Button(btnbar, text="前資料",
+        # 左端：印刷
+        print_btn = tk.Button(
+            btnbar, text="印刷",
+            font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
+            command=self.print_detail  # プレースホルダ実装（下で定義）
+        )
+        print_btn.grid(row=0, column=0, padx=(10,6), pady=(6,10), sticky="w")
+
+        # 中央：前資料・次資料（センター用の中間フレームを置く）
+        center_frame = tk.Frame(btnbar, bg="white")
+        center_frame.grid(row=0, column=1, pady=(6,10))
+
+        self.prev_btn = tk.Button(center_frame, text="前資料",
                                   font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
                                   command=lambda: self.nav_detail(-1))
-        self.next_btn = tk.Button(btnbar, text="次資料",
+        self.next_btn = tk.Button(center_frame, text="次資料",
                                   font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
                                   command=lambda: self.nav_detail(+1))
-        self.prev_btn.grid(row=0, column=0, padx=(10,6), pady=(6,10), sticky="w")
-        self.next_btn.grid(row=0, column=1, padx=(0,6),  pady=(6,10), sticky="w")
+        self.prev_btn.pack(side="left", padx=(0, 8))
+        self.next_btn.pack(side="left")
 
-        close_btn = tk.Button(btnbar, text="閉じる",
-                              font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
-                              command=self.close_detail_if_exists)
-        close_btn.grid(row=0, column=3, padx=(0,10), pady=(6,10), sticky="e")
+        # 右端：閉じる
+        close_btn = tk.Button(
+            btnbar, text="閉じる",
+            font=DETAIL_BTN_FONT, width=DETAIL_BTN_WIDTH, height=DETAIL_BTN_HEIGHT,
+            command=self.close_detail_if_exists
+        )
+        close_btn.grid(row=0, column=2, padx=(0,10), pady=(6,10), sticky="e")
 
         self.detail_win = win
         self.update_detail_nav_buttons()
@@ -850,6 +868,12 @@ class App:
         self.detail_labels = {}
         self.prev_btn = None
         self.next_btn = None
+    
+    def print_detail(self):
+        """詳細ウィンドウの内容を印刷（プレースホルダ）"""
+        # ここに実際の印刷処理（プリンタ連携やPDF出力）を実装できます。
+        # まずは動作確認用の簡易ダイアログのみ。
+        messagebox.showinfo("印刷", "印刷機能は今後実装予定です。")
 
     # ==== ナビ（前/次ボタンでリストも連動しページ送り） ====
     def nav_detail(self, delta: int):
