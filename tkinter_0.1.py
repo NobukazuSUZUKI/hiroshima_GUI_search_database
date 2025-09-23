@@ -564,11 +564,20 @@ class App:
             .pack(pady=(10, 10))
 
     def open_advanced_dialog(self):
-        """詳細検索ダイアログ（ジャンル検索と同サイズの別ウィンドウ）"""
+        """
+        詳細検索ダイアログ（5.1修正）：
+        - 入力4項目：タイトル / 人名 / 内容 / 請求番号
+          → 「検索」ボタンは 人名・内容 の右側に配置
+        - チェック4種：ビデオテープ / DVD / レコード / コンパクトカセットテープ
+          → 「すべて解除」の右に「すべて選択」を追加
+        - 「閉じる」は一番下の中央
+        """
+        import tkinter as tk
+
         dlg = tk.Toplevel(self.root, bg="white")
         dlg.title("詳細検索")
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        w, h = int(sw * 0.9), int(sh * 0.7)
+        w, h = int(sw * 0.9), int(sh * 0.7)  # ジャンル検索と同サイズ
         x, y = (sw - w)//2, (sh - h)//2
         dlg.geometry(f"{w}x{h}+{x}+{y}")
         dlg.transient(self.root)
@@ -578,23 +587,36 @@ class App:
         host = tk.Frame(dlg, bg="white")
         host.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # ---- フォーム：4つの入力 ----
+        # ==== 上段：ラベル＋入力（グリッド） ====
         form = tk.Frame(host, bg="white")
         form.pack(fill="x", anchor="w")
 
-        labels = [("タイトル","タイトル"), ("人名","人名"), ("内容","内容"), ("請求番号","請求番号")]
+        labels = ["タイトル", "人名", "内容", "請求番号"]
         self.adv_entries = {}
-        for r, (key, lab) in enumerate(labels):
-            tk.Label(form, text=lab, font=FONT_MED, bg="white", fg="black", anchor="w", width=12)                .grid(row=r, column=0, sticky="w", padx=(0,8), pady=6)
+
+        # 各行： [0]=ラベル, [1]=Entry, [2]=（人名と内容のみ）検索ボタン
+        for r, lab in enumerate(labels):
+            tk.Label(form, text=lab, font=FONT_MED, bg="white", fg="black",
+                     anchor="w", width=12).grid(row=r, column=0, sticky="w",
+                                                padx=(0, 8), pady=6)
+
             ent = tk.Entry(form, font=FONT_MED, width=50)
-            ent.grid(row=r, column=1, sticky="w", padx=(0,16), pady=6, ipady=4)
-            self.adv_entries[key] = ent
+            ent.grid(row=r, column=1, sticky="w", padx=(0, 8), pady=6, ipady=4)
+            self.adv_entries[lab] = ent
 
-        # ---- メディア種別チェック群 ----
+            # 「検索」ボタンは 人名 と 内容 の行の右側に置く
+            if lab in ("人名", "内容"):
+                tk.Button(
+                    form, text="検索", font=FONT_BTN, width=8,
+                    command=lambda: self.run_advanced_search(dlg)
+                ).grid(row=r, column=2, sticky="w", padx=(4, 0), pady=6)
+
+        # ==== 中段：メディア種別（チェック群） ====
         media_frame = tk.Frame(host, bg="white")
-        media_frame.pack(fill="x", anchor="w", pady=(16,0))
+        media_frame.pack(fill="x", anchor="w", pady=(16, 0))
 
-        tk.Label(media_frame, text="メディア", font=FONT_MED, bg="white", fg="black", anchor="w", width=12)            .grid(row=0, column=0, sticky="w")
+        tk.Label(media_frame, text="メディア", font=FONT_MED, bg="white",
+                 fg="black", anchor="w", width=12).grid(row=0, column=0, sticky="w")
 
         checks_frame = tk.Frame(media_frame, bg="white")
         checks_frame.grid(row=0, column=1, sticky="w")
@@ -602,24 +624,40 @@ class App:
         media_items = ["ビデオテープ", "DVD", "レコード", "コンパクトカセットテープ"]
         self.adv_media_vars = {}
         for i, m in enumerate(media_items):
-            var = tk.BooleanVar(value=True)
-            tk.Checkbutton(checks_frame, text=m, variable=var, font=FONT_MED, bg="white")              .grid(row=0, column=i, padx=(0,12))
+            var = tk.BooleanVar(value=True)  # 初期は全ON
+            chk = tk.Checkbutton(checks_frame, text=m, variable=var,
+                                 font=FONT_MED, bg="white")
+            chk.grid(row=0, column=i, padx=(0, 12))
             self.adv_media_vars[m] = var
 
+        # 右側に「すべて解除」と「すべて選択」
         def uncheck_all():
             for v in self.adv_media_vars.values():
                 v.set(False)
 
-        tk.Button(media_frame, text="すべて解除", font=FONT_BTN, width=10,
-                  command=uncheck_all)            .grid(row=0, column=2, sticky="w", padx=(16,0))
+        def check_all():
+            for v in self.adv_media_vars.values():
+                v.set(True)
 
-        # ---- 実行ボタン ----
-        btns = tk.Frame(host, bg="white")
-        btns.pack(fill="x", pady=(24,0))
-        tk.Button(btns, text="検索", font=FONT_BTN, width=10,
-                  command=lambda: self.run_advanced_search(dlg))            .pack(side="right", padx=(0,8))
-        tk.Button(btns, text="閉じる", font=FONT_BTN, width=10,
-                  command=lambda: (dlg.grab_release(), dlg.destroy()))            .pack(side="right")
+        tk.Button(media_frame, text="すべて解除", font=FONT_BTN, width=10,
+                  command=uncheck_all).grid(row=0, column=2, sticky="w", padx=(16, 8))
+        tk.Button(media_frame, text="すべて選択", font=FONT_BTN, width=10,
+                  command=check_all).grid(row=0, column=3, sticky="w", padx=(0, 0))
+
+        # ==== 下段：フッター（閉じる＝中央） ====
+        footer = tk.Frame(host, bg="white")
+        footer.pack(fill="x", pady=(24, 0))
+
+        # 中央寄せのため 3カラム構成のグリッドを用意
+        footer.grid_columnconfigure(0, weight=1)
+        footer.grid_columnconfigure(1, weight=0)
+        footer.grid_columnconfigure(2, weight=1)
+
+        close_btn = tk.Button(
+            footer, text="閉じる", font=FONT_BTN, width=12,
+            command=lambda: (dlg.grab_release(), dlg.destroy())
+        )
+        close_btn.grid(row=0, column=1, pady=(0, 0))
 
     def search_by_genre(self, genre: str, dlg: tk.Toplevel = None):
         if "ジャンル" not in self.df_all.columns:
