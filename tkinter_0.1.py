@@ -565,60 +565,83 @@ class App:
 
     def open_advanced_dialog(self):
         """
-        詳細検索ダイアログ（検索ボタン位置のみ調整）：
+        詳細検索ダイアログ（5.1 → 要望反映）：
         - 入力4項目：タイトル / 人名 / 内容 / 請求番号
-        - 検索ボタン：人名と内容の入力欄の右側
-                        縦位置は人名と内容の真ん中
-                        横位置は「すべて解除」と同じ列に揃える
-        - メディア：チェックボックス4種＋「すべて解除」「すべて選択」
-        - 閉じる：最下段中央
+        - 検索ボタンは1つだけ：
+            * 人名・内容の右側
+            * 縦位置は人名と内容の真ん中
+            * 横位置は「すべて解除」と同じ列・同じ余白
+        - メディア：ビデオテープ / DVD / レコード / コンパクトカセットテープ
+            * チェックボックスは少し大きく（FONT_BTN）
+            * 右側に「すべて解除」「すべて選択」
+        - デザイン：見出し・薄い区切り線・余白で視認性UP
         """
         import tkinter as tk
 
         dlg = tk.Toplevel(self.root, bg="white")
         dlg.title("詳細検索")
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        w, h = int(sw * 0.9), int(sh * 0.7)
+        w, h = int(sw * 0.9), int(sh * 0.7)  # ジャンル検索と同サイズ
         x, y = (sw - w)//2, (sh - h)//2
         dlg.geometry(f"{w}x{h}+{x}+{y}")
         dlg.transient(self.root)
         dlg.grab_set()
         dlg.focus_force()
 
+        # ===== Host（全体コンテナ） =====
         host = tk.Frame(dlg, bg="white")
         host.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # ==== 入力欄 ====
+        # ===== 見出し：キーワード =====
+        tk.Label(host, text="キーワード", font=FONT_BTN, bg="white", fg="#222").pack(anchor="w")
+        tk.Frame(host, height=1, bg="#E6E6F0").pack(fill="x", pady=(2, 12))
+
+        # ==== 入力欄（グリッド） ====
         form = tk.Frame(host, bg="white")
         form.pack(fill="x", anchor="w")
+
+        # 列幅バランス：ラベル(0) / Entry(1) / 検索ボタン列(2)
+        form.grid_columnconfigure(0, weight=0)
+        form.grid_columnconfigure(1, weight=1)
+        form.grid_columnconfigure(2, weight=0, minsize=120)
 
         labels = ["タイトル", "人名", "内容", "請求番号"]
         self.adv_entries = {}
 
+        # 行：0=タイトル, 1=人名, 2=内容, 3=請求番号
         for r, lab in enumerate(labels):
             tk.Label(form, text=lab, font=FONT_MED, bg="white", fg="black",
-                     anchor="w", width=12).grid(row=r, column=0, sticky="w",
-                                                padx=(0, 8), pady=6)
+                     anchor="w", width=12)\
+                .grid(row=r, column=0, sticky="w", padx=(0, 8), pady=8)
 
-            ent = tk.Entry(form, font=FONT_MED, width=50)
-            ent.grid(row=r, column=1, sticky="w", padx=(0, 8), pady=6, ipady=4)
+            ent = tk.Entry(form, font=FONT_MED, width=60)
+            ent.grid(row=r, column=1, sticky="we", padx=(0, 8), pady=8, ipady=4)
             self.adv_entries[lab] = ent
 
-        # ---- 検索ボタン（1つだけ、人名と内容の中間に表示）----
+        # ---- 検索ボタン（1つだけ）----
+        # * 横位置：form の column=2（→ メディア側「すべて解除」と同じ列）
+        # * 余白：padx=(16, 8)（→ 「すべて解除」と同一）
+        # * 縦位置：row=1 から row=2 までまたいで rowspan=2 → 人名と内容の“真ん中”に見える
         search_btn = tk.Button(
             form, text="検索", font=FONT_BTN, width=10,
             command=lambda: self.run_advanced_search(dlg)
         )
-        # 人名(row=1) と 内容(row=2) をまたいで配置 → 中間に見える
         search_btn.grid(row=1, column=2, rowspan=2, padx=(16, 8), pady=0, sticky="n")
 
-        # ==== メディア種別 ====
+        # ===== 見出し：メディア =====
+        tk.Label(host, text="メディア", font=FONT_BTN, bg="white", fg="#222").pack(anchor="w", pady=(20, 0))
+        tk.Frame(host, height=1, bg="#E6E6F0").pack(fill="x", pady=(2, 12))
+
+        # ==== メディア種別（チェック群） ====
         media_frame = tk.Frame(host, bg="white")
-        media_frame.pack(fill="x", anchor="w", pady=(16, 0))
+        media_frame.pack(fill="x", anchor="w")
 
-        tk.Label(media_frame, text="メディア", font=FONT_MED, bg="white",
-                 fg="black", anchor="w", width=12).grid(row=0, column=0, sticky="w")
+        # ラベル（左固定）
+        tk.Label(media_frame, text="種類", font=FONT_MED, bg="white",
+                 fg="black", anchor="w", width=12)\
+            .grid(row=0, column=0, sticky="w")
 
+        # チェック群（中央寄せ用）
         checks_frame = tk.Frame(media_frame, bg="white")
         checks_frame.grid(row=0, column=1, sticky="w")
 
@@ -626,9 +649,10 @@ class App:
         self.adv_media_vars = {}
         for i, m in enumerate(media_items):
             var = tk.BooleanVar(value=True)
+            # フォントを大きめ（FONT_BTN）にしてチェックボックスを視認性アップ
             chk = tk.Checkbutton(checks_frame, text=m, variable=var,
-                                 font=FONT_MED, bg="white")
-            chk.grid(row=0, column=i, padx=(0, 12))
+                                 font=FONT_BTN, bg="white", activebackground="white")
+            chk.grid(row=0, column=i, padx=(0, 14))
             self.adv_media_vars[m] = var
 
         # 右側に「すべて解除」「すべて選択」
@@ -640,22 +664,28 @@ class App:
             for v in self.adv_media_vars.values():
                 v.set(True)
 
+        # 「検索」ボタンと横位置を合わせるため column=2（padx=(16,8)も合わせる）
         tk.Button(media_frame, text="すべて解除", font=FONT_BTN, width=10,
-                  command=uncheck_all).grid(row=0, column=2, sticky="w", padx=(16, 8))
+                  command=uncheck_all)\
+            .grid(row=0, column=2, sticky="w", padx=(16, 8))
         tk.Button(media_frame, text="すべて選択", font=FONT_BTN, width=10,
-                  command=check_all).grid(row=0, column=3, sticky="w")
+                  command=check_all)\
+            .grid(row=0, column=3, sticky="w")
 
-        # ==== 閉じる（最下段中央） ====
+        # ===== 区切り線 =====
+        tk.Frame(host, height=1, bg="#EDEDF5").pack(fill="x", pady=(24, 16))
+
+        # ==== 閉じる（最下段・中央） ====
         footer = tk.Frame(host, bg="white")
-        footer.pack(fill="x", pady=(24, 0))
+        footer.pack(fill="x", pady=(0, 0))
         footer.grid_columnconfigure(0, weight=1)
         footer.grid_columnconfigure(1, weight=0)
         footer.grid_columnconfigure(2, weight=1)
 
         tk.Button(
-            footer, text="閉じる", font=FONT_BTN, width=10,
+            footer, text="閉じる", font=FONT_BTN, width=12,
             command=lambda: (dlg.grab_release(), dlg.destroy())
-        ).grid(row=0, column=1)
+        ).grid(row=0, column=1, pady=(0, 0))
 
     def search_by_genre(self, genre: str, dlg: tk.Toplevel = None):
         if "ジャンル" not in self.df_all.columns:
