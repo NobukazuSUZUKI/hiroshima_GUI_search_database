@@ -565,12 +565,13 @@ class App:
 
     def open_advanced_dialog(self):
         """
-        詳細検索ダイアログ（5.2修正）：
+        詳細検索ダイアログ（検索ボタン位置のみ調整）：
         - 入力4項目：タイトル / 人名 / 内容 / 請求番号
-        - チェック4種：ビデオテープ / DVD / レコード / コンパクトカセットテープ
-          → 「すべて解除」と「すべて選択」を横並び
-        - 検索ボタンは1つだけ（「すべて解除」と同じ幅10）
-        - 閉じるボタンはウィンドウ最下段の中央
+        - 検索ボタン：人名と内容の入力欄の右側
+                        縦位置は人名と内容の真ん中
+                        横位置は「すべて解除」と同じ列に揃える
+        - メディア：チェックボックス4種＋「すべて解除」「すべて選択」
+        - 閉じる：最下段中央
         """
         import tkinter as tk
 
@@ -602,6 +603,14 @@ class App:
             ent = tk.Entry(form, font=FONT_MED, width=50)
             ent.grid(row=r, column=1, sticky="w", padx=(0, 8), pady=6, ipady=4)
             self.adv_entries[lab] = ent
+
+        # ---- 検索ボタン（1つだけ、人名と内容の中間に表示）----
+        search_btn = tk.Button(
+            form, text="検索", font=FONT_BTN, width=10,
+            command=lambda: self.run_advanced_search(dlg)
+        )
+        # 人名(row=1) と 内容(row=2) をまたいで配置 → 中間に見える
+        search_btn.grid(row=1, column=2, rowspan=2, padx=(16, 8), pady=0, sticky="n")
 
         # ==== メディア種別 ====
         media_frame = tk.Frame(host, bg="white")
@@ -636,26 +645,17 @@ class App:
         tk.Button(media_frame, text="すべて選択", font=FONT_BTN, width=10,
                   command=check_all).grid(row=0, column=3, sticky="w")
 
-        # ==== 検索ボタン（中央寄せ、幅=10） ====
-        search_frame = tk.Frame(host, bg="white")
-        search_frame.pack(fill="x", pady=(24, 0))
-        search_frame.grid_columnconfigure(0, weight=1)
-        search_frame.grid_columnconfigure(1, weight=0)
-        search_frame.grid_columnconfigure(2, weight=1)
-
-        tk.Button(search_frame, text="検索", font=FONT_BTN, width=10,
-                  command=lambda: self.run_advanced_search(dlg)).grid(row=0, column=1)
-
-        # ==== 閉じるボタン（最下段中央） ====
+        # ==== 閉じる（最下段中央） ====
         footer = tk.Frame(host, bg="white")
-        footer.pack(fill="x", pady=(24, 0), side="bottom")
+        footer.pack(fill="x", pady=(24, 0))
         footer.grid_columnconfigure(0, weight=1)
         footer.grid_columnconfigure(1, weight=0)
         footer.grid_columnconfigure(2, weight=1)
 
-        tk.Button(footer, text="閉じる", font=FONT_BTN, width=10,
-                  command=lambda: (dlg.grab_release(), dlg.destroy())
-                  ).grid(row=0, column=1)
+        tk.Button(
+            footer, text="閉じる", font=FONT_BTN, width=10,
+            command=lambda: (dlg.grab_release(), dlg.destroy())
+        ).grid(row=0, column=1)
 
     def search_by_genre(self, genre: str, dlg: tk.Toplevel = None):
         if "ジャンル" not in self.df_all.columns:
