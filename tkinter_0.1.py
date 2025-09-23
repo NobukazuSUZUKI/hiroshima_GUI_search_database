@@ -870,10 +870,170 @@ class App:
         self.next_btn = None
     
     def print_detail(self):
-        """詳細ウィンドウの内容を印刷（プレースホルダ）"""
-        # ここに実際の印刷処理（プリンタ連携やPDF出力）を実装できます。
-        # まずは動作確認用の簡易ダイアログのみ。
-        messagebox.showinfo("印刷", "印刷機能は今後実装予定です。")
+        """
+        印刷機能：
+        - 現在の詳細レコードから「登録番号／メディア／タイトル」を取得
+        - 先頭に「氏名／住所／電話番号」の記入欄を持つレシート風プレビューを表示
+        - 将来はここから既定プリンタ送信に切替予定
+        """
+        try:
+            info = self._extract_detail_fields_for_print()
+        except Exception as e:
+            # 取得に失敗しても空欄でプレビューは出す
+            info = {"登録番号": "", "メディア": "", "タイトル": ""}
+        self._open_receipt_preview(info)
+    
+    def _extract_detail_fields_for_print(self):
+        """
+        詳細表示中のレコードから「登録番号／メディア／タイトル」を抽出して返す。
+        いくつかの列名バリエーションに対応（安全に空文字フォールバック）。
+        """
+        row = None
+
+        # よくある保持先を優先して探す（あなたの実装に合わせて広めにケア）
+        if hasattr(self, "detail_rows") and hasattr(self, "detail_index"):
+            try:
+                if 0 <= self.detail_index < len(self.detail_rows):
+                    row = self.detail_rows[self.detail_index]
+            except Exception:
+                pass
+
+        if row is None and hasattr(self, "current_detail_row"):
+            row = getattr(self, "current_detail_row")
+
+        if row is None and hasattr(self, "selected_rows") and getattr(self, "selected_rows"):
+            row = self.selected_rows[0]
+
+        # dict 化
+        if row is None:
+            data = {}
+        else:
+            try:
+                # pandas Series など
+                if hasattr(row, "to_dict"):
+                    data = row.to_dict()
+                elif isinstance(row, dict):
+                    data = row
+                else:
+                    # namedtuple / list の場合は不可知なので空
+                    data = {}
+            except Exception:
+                data = {}
+
+        def find_value(candidates):
+            """列名の候補（文字列配列）を走査して最初に見つかった値を返す"""
+            for key in list(data.keys()):
+                key_lower = str(key).lower()
+                for cand in candidates:
+                    if cand in key_lower:
+                        return data.get(key, "")
+            return ""
+
+        # 列名のゆらぎに対応
+        regno  = find_value(["登録番号", "請求番号", "登録", "請求", "catalog", "call", "id"])
+        media  = find_value(["メディア", "媒体", "format", "フォーマット"])
+        title  = find_value(["タイトル", "題名", "title", "表題"])
+
+        # str 化して返す
+        return {
+            "登録番号": str(regno or ""),
+            "メディア": str(media or ""),
+            "タイトル": str(title or "")
+        }
+
+    def _open_receipt_preview(self, info: dict):
+        """
+        レシート風の印刷プレビューを表示。
+        - 画面上部：氏名／住所／電話番号（入力欄を配置）
+        - その下：選択資料の「登録番号／メディア／タイトル」を印字
+        - 下部：［印刷（将来：既定プリンタ送信）］［閉じる］
+        """
+        import tkinter as tk
+
+        # レシート想定サイズ（幅狭・縦長）
+        dlg = tk.Toplevel(self.root, bg="white")
+        dlg.title("印刷プレビュー（レシート）")
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w, h = 420, 620
+        x, y = (sw - w)//2, (sh - h)//2
+        dlg.geometry(f"{w}x{h}+{x}+{y}")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.focus_force()
+
+        mono = ("Consolas", 11)  # 等幅
+        labf = ("Meiryo UI", 10)
+        btnf = ("Meiryo UI", 10)
+
+        host = tk.Frame(dlg, bg="white")
+        host.pack(fill="both", expand=True, padx=16, pady=16)
+
+        # ヘッダー
+        tk.Label(host, text="貸出控（仮）", font=("Meiryo UI", 12, "bold"),
+                 bg="white", fg="#222").pack(anchor="center", pady=(0,8))
+        tk.Frame(host, height=1, bg="#e5e5ea").pack(fill="x", pady=(0,12))
+
+        # ——— 記入欄（氏名／住所／電話番号） ———
+        form = tk.Frame(host, bg="white")
+        form.pack(fill="x", anchor="w")
+
+        tk.Label(form, text="氏名", font=labf, bg="white").grid(row=0, column=0, sticky="w", pady=6)
+        name_entry = tk.Entry(form, font=labf, width=36)
+        name_entry.grid(row=0, column=1, sticky="we", pady=6)
+
+        tk.Label(form, text="住所", font=labf, bg="white").grid(row=1, column=0, sticky="w", pady=6)
+        addr_entry = tk.Entry(form, font=labf, width=36)
+        addr_entry.grid(row=1, column=1, sticky="we", pady=6)
+
+        tk.Label(form, text="電話番号", font=labf, bg="white").grid(row=2, column=0, sticky="w", pady=6)
+        tel_entry = tk.Entry(form, font=labf, width=36)
+        tel_entry.grid(row=2, column=1, sticky="we", pady=6)
+
+        form.grid_columnconfigure(0, weight=0)
+        form.grid_columnconfigure(1, weight=1)
+
+        # 仕切り
+        tk.Frame(host, height=1, bg="#e5e5ea").pack(fill="x", pady=(12,10))
+
+        # ——— 資料情報 ———
+        body = tk.Frame(host, bg="white")
+        body.pack(fill="x", anchor="w")
+
+        def line(k, v):
+            row = tk.Frame(body, bg="white")
+            row.pack(fill="x", anchor="w", pady=2)
+            tk.Label(row, text=f"{k}：", font=labf, bg="white").pack(side="left")
+            tk.Label(row, text=str(v), font=mono, bg="white").pack(side="left")
+
+        line("登録番号", info.get("登録番号", ""))
+        line("メディア", info.get("メディア", ""))
+        line("タイトル", info.get("タイトル", ""))
+
+        # 余白
+        tk.Frame(host, height=1, bg="#ffffff").pack(fill="x", pady=(8,8))
+        tk.Frame(host, height=1, bg="#e5e5ea").pack(fill="x", pady=(0,10))
+
+        # ——— ボタン（左=印刷 / 右=閉じる） ———
+        btns = tk.Frame(host, bg="white")
+        btns.pack(fill="x", pady=(8,0))
+        btns.grid_columnconfigure(0, weight=1)
+        btns.grid_columnconfigure(1, weight=0)
+        btns.grid_columnconfigure(2, weight=1)
+
+        # 将来の既定プリンタ送信フック
+        def _send_to_default_printer():
+            # ★将来実装：既定プリンタがあればここで OS へ印刷命令を送る
+            # 例：Windows なら win32print、macOS なら lpr など
+            # 現状はプレビューのみなのでメッセージ表示
+            from tkinter import messagebox
+            messagebox.showinfo("印刷", "現在は既定プリンタが未設定のため、プレビューのみです。")
+
+        tk.Button(btns, text="印刷", width=10, font=btnf,
+                  command=_send_to_default_printer).grid(row=0, column=0, sticky="w")
+
+        tk.Button(btns, text="閉じる", width=10, font=btnf,
+                  command=lambda: (dlg.grab_release(), dlg.destroy()))\
+            .grid(row=0, column=2, sticky="e")
 
     # ==== ナビ（前/次ボタンでリストも連動しページ送り） ====
     def nav_detail(self, delta: int):
