@@ -871,17 +871,26 @@ class App:
     
     def print_detail(self):
         """
-        印刷機能：
-        - 現在の詳細レコードから「登録番号／メディア／タイトル」を取得
-        - 先頭に「氏名／住所／電話番号」の記入欄を持つレシート風プレビューを表示
-        - 将来はここから既定プリンタ送信に切替予定
+        印刷画面（視聴申請用紙・仮）を開く。
+        - 右上に「日付：YYYY年M月D日」
+        - その下に「申請番号：0001」のように4桁ゼロ埋め連番
+        - 連番は表示のたびに +1（既定プリンタは未接続のためプレビュー＝印刷扱い）
         """
+        # 連番カウンタ（初回だけ1で作成）
+        if not hasattr(self, "print_seq"):
+            self.print_seq = 1
+
+        # レコードの抽出（失敗時は空欄）
         try:
             info = self._extract_detail_fields_for_print()
-        except Exception as e:
-            # 取得に失敗しても空欄でプレビューは出す
+        except Exception:
             info = {"登録番号": "", "メディア": "", "タイトル": ""}
-        self._open_receipt_preview(info)
+
+        # 今回の番号を使ってプレビューを開き、表示したらカウンタを進める
+        seq_for_now = self.print_seq
+        self._open_receipt_preview(info, seq_for_now)
+        self.print_seq += 1
+
     
     def _extract_detail_fields_for_print(self):
         """
@@ -941,18 +950,25 @@ class App:
             "タイトル": str(title or "")
         }
 
-    def _open_receipt_preview(self, info: dict):
+    def _open_receipt_preview(self, info: dict, seq_no: int):
         """
-        レシート風の印刷プレビューを表示。
-        - 画面上部：氏名／住所／電話番号（入力欄を配置）
-        - その下：選択資料の「登録番号／メディア／タイトル」を印字
-        - 下部：［印刷（将来：既定プリンタ送信）］［閉じる］
+        視聴申請用紙（仮）プレビューを表示。
+        - 右上に「日付：YYYY年M月D日」「申請番号：0001」
+        - 上：氏名／住所／電話番号（入力欄）
+        - 下：選択中資料の「登録番号」「メディア」「タイトル」をそのまま記載
+        - 印刷/閉じるボタンは無し（ウィンドウ右上×で閉じる）
         """
         import tkinter as tk
+        from datetime import date
 
-        # レシート想定サイズ（幅狭・縦長）
+        # 日付（システム日付）
+        today = date.today()
+        date_text = f"日付：{today.year}年{today.month}月{today.day}日"
+        app_no_text = f"申請番号：{seq_no:04d}"
+
+        # ウィンドウ（狭幅・縦長）
         dlg = tk.Toplevel(self.root, bg="white")
-        dlg.title("印刷プレビュー（レシート）")
+        dlg.title("視聴申請用紙（仮）")
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         w, h = 420, 620
         x, y = (sw - w)//2, (sh - h)//2
@@ -961,79 +977,62 @@ class App:
         dlg.grab_set()
         dlg.focus_force()
 
-        mono = ("Consolas", 11)  # 等幅
+        mono = ("Consolas", 11)   # 等幅
         labf = ("Meiryo UI", 10)
-        btnf = ("Meiryo UI", 10)
+        head = ("Meiryo UI", 12, "bold")
 
         host = tk.Frame(dlg, bg="white")
         host.pack(fill="both", expand=True, padx=16, pady=16)
 
-        # ヘッダー
-        tk.Label(host, text="貸出控（仮）", font=("Meiryo UI", 12, "bold"),
-                 bg="white", fg="#222").pack(anchor="center", pady=(0,8))
-        tk.Frame(host, height=1, bg="#e5e5ea").pack(fill="x", pady=(0,12))
+        # ヘッダー（左：タイトル / 右：日付・申請番号）
+        header = tk.Frame(host, bg="white")
+        header.pack(fill="x", pady=(0, 10))
+        tk.Label(header, text="視聴申請用紙（仮）", font=head, bg="white", fg="#222")\
+            .pack(side="left", anchor="w")
+
+        rightbox = tk.Frame(header, bg="white")
+        rightbox.pack(side="right", anchor="e")
+        tk.Label(rightbox, text=date_text, font=labf, bg="white", fg="#222")\
+            .pack(anchor="e")
+        tk.Label(rightbox, text=app_no_text, font=labf, bg="white", fg="#222")\
+            .pack(anchor="e")
+
+        tk.Frame(host, height=1, bg="#e5e5ea").pack(fill="x", pady=(0, 12))
 
         # ——— 記入欄（氏名／住所／電話番号） ———
         form = tk.Frame(host, bg="white")
         form.pack(fill="x", anchor="w")
 
         tk.Label(form, text="氏名", font=labf, bg="white").grid(row=0, column=0, sticky="w", pady=6)
-        name_entry = tk.Entry(form, font=labf, width=36)
-        name_entry.grid(row=0, column=1, sticky="we", pady=6)
+        tk.Entry(form, font=labf, width=36).grid(row=0, column=1, sticky="we", pady=6)
 
         tk.Label(form, text="住所", font=labf, bg="white").grid(row=1, column=0, sticky="w", pady=6)
-        addr_entry = tk.Entry(form, font=labf, width=36)
-        addr_entry.grid(row=1, column=1, sticky="we", pady=6)
+        tk.Entry(form, font=labf, width=36).grid(row=1, column=1, sticky="we", pady=6)
 
         tk.Label(form, text="電話番号", font=labf, bg="white").grid(row=2, column=0, sticky="w", pady=6)
-        tel_entry = tk.Entry(form, font=labf, width=36)
-        tel_entry.grid(row=2, column=1, sticky="we", pady=6)
+        tk.Entry(form, font=labf, width=36).grid(row=2, column=1, sticky="we", pady=6)
 
         form.grid_columnconfigure(0, weight=0)
         form.grid_columnconfigure(1, weight=1)
 
-        # 仕切り
-        tk.Frame(host, height=1, bg="#e5e5ea").pack(fill="x", pady=(12,10))
+        tk.Frame(host, height=1, bg="#e5e5ea").pack(fill="x", pady=(12, 10))
 
-        # ——— 資料情報 ———
+        # ——— 資料情報（選択中のまま記載） ———
         body = tk.Frame(host, bg="white")
         body.pack(fill="x", anchor="w")
 
-        def line(k, v):
+        def line(key, val):
             row = tk.Frame(body, bg="white")
             row.pack(fill="x", anchor="w", pady=2)
-            tk.Label(row, text=f"{k}：", font=labf, bg="white").pack(side="left")
-            tk.Label(row, text=str(v), font=mono, bg="white").pack(side="left")
+            tk.Label(row, text=f"{key}：", font=labf, bg="white").pack(side="left")
+            tk.Label(row, text=str(val), font=mono, bg="white").pack(side="left")
 
         line("登録番号", info.get("登録番号", ""))
         line("メディア", info.get("メディア", ""))
         line("タイトル", info.get("タイトル", ""))
 
-        # 余白
-        tk.Frame(host, height=1, bg="#ffffff").pack(fill="x", pady=(8,8))
-        tk.Frame(host, height=1, bg="#e5e5ea").pack(fill="x", pady=(0,10))
-
-        # ——— ボタン（左=印刷 / 右=閉じる） ———
-        btns = tk.Frame(host, bg="white")
-        btns.pack(fill="x", pady=(8,0))
-        btns.grid_columnconfigure(0, weight=1)
-        btns.grid_columnconfigure(1, weight=0)
-        btns.grid_columnconfigure(2, weight=1)
-
-        # 将来の既定プリンタ送信フック
-        def _send_to_default_printer():
-            # ★将来実装：既定プリンタがあればここで OS へ印刷命令を送る
-            # 例：Windows なら win32print、macOS なら lpr など
-            # 現状はプレビューのみなのでメッセージ表示
-            from tkinter import messagebox
-            messagebox.showinfo("印刷", "現在は既定プリンタが未設定のため、プレビューのみです。")
-
-        tk.Button(btns, text="印刷", width=10, font=btnf,
-                  command=_send_to_default_printer).grid(row=0, column=0, sticky="w")
-
-        tk.Button(btns, text="閉じる", width=10, font=btnf,
-                  command=lambda: (dlg.grab_release(), dlg.destroy()))\
-            .grid(row=0, column=2, sticky="e")
+        # 最下段は余白のみ（ボタン無し）
+        tk.Frame(host, height=1, bg="#ffffff").pack(fill="x", pady=(16, 0))
 
     # ==== ナビ（前/次ボタンでリストも連動しページ送り） ====
     def nav_detail(self, delta: int):
